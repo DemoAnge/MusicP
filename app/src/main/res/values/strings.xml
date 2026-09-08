@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Music</string>
+    <string name="playback_channel_name">Reproducción</string>
+    <string name="playback_notification_text">Reproduciendo</string>
 </resources>
