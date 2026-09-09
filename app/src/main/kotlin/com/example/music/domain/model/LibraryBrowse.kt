@@ -35,4 +35,6 @@ data class LibraryUiState(
     val visibleTracks: List<Track> = emptyList(),
     val favoriteIds: Set<String> = emptySet(),
     val countLabel: String = "",
+    val selecting: Boolean = false,
+    val selectedIds: Set<String> = emptySet(),
 )

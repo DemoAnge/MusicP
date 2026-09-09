@@ -1,5 +1,10 @@
 package com.example.music.ui
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -14,9 +19,13 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
@@ -29,6 +38,8 @@ import com.example.music.core.theme.SpotifyGreen
 import com.example.music.core.theme.Surface
 import com.example.music.ui.components.MiniPlayer
 import com.example.music.ui.library.LibraryScreen
+import com.example.music.ui.lockscreen.LockScreenAuthScreen
+import com.example.music.ui.lockscreen.LockScreenAuthViewModel
 import com.example.music.ui.nowplaying.NowPlayingScreen
 import com.example.music.ui.search.SearchScreen
 
@@ -41,12 +52,30 @@ private object Destinations {
 @Composable
 fun MusicApp(
     playerBarViewModel: PlayerBarViewModel = hiltViewModel(),
+    lockScreenAuthViewModel: LockScreenAuthViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
     val playerState by playerBarViewModel.playerState.collectAsStateWithLifecycle()
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination
+    val showLockPrompt by lockScreenAuthViewModel.showPrompt.collectAsStateWithLifecycle()
+    val showLockBanner by lockScreenAuthViewModel.showBanner.collectAsStateWithLifecycle()
+    val notificationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        lockScreenAuthViewModel.refresh()
+        if (!it) lockScreenAuthViewModel.dismiss()
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) lockScreenAuthViewModel.refresh()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = Background,
         bottomBar = {
@@ -103,9 +132,27 @@ fun MusicApp(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            composable(Destinations.Library) { LibraryScreen() }
+            composable(Destinations.Library) {
+                LibraryScreen(
+                    showLockScreenBanner = showLockBanner,
+                    onEnableLockScreenControls = lockScreenAuthViewModel::reshow,
+                )
+            }
             composable(Destinations.Search) { SearchScreen() }
             composable(Destinations.NowPlaying) { NowPlayingScreen() }
+        }
+    }
+        if (showLockPrompt) {
+            LockScreenAuthScreen(
+                onAllow = {
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        lockScreenAuthViewModel.refresh()
+                    }
+                },
+                onSkip = lockScreenAuthViewModel::dismiss,
+            )
         }
     }
 }

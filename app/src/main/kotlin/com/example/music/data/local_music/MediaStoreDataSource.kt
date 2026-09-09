@@ -1,15 +1,18 @@
 package com.example.music.data.local_music
 
+import android.app.RecoverableSecurityException
 import android.content.ContentUris
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Size
 import com.example.music.data.lyrics.Id3LyricsReader
+import com.example.music.domain.model.DeleteTracksResult
 import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.Track
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -28,6 +31,71 @@ class MediaStoreDataSource @Inject constructor(
             runCatching { tracks += queryVideo() }
             tracks.distinctBy { it.mediaUri }.sortedBy { it.title.lowercase() }
         }.getOrDefault(emptyList())
+    }
+
+    fun requestDelete(tracks: List<Track>): DeleteTracksResult {
+        val uris = tracks.mapNotNull { track ->
+            track.mediaUri.takeIf { it.isNotBlank() }?.let { raw ->
+                runCatching { Uri.parse(raw) }.getOrNull()
+            }
+        }.distinct()
+        if (uris.isEmpty()) return DeleteTracksResult.Empty
+
+        val mediaUris = uris.filter { uri ->
+            uri.authority.orEmpty().contains("media", ignoreCase = true)
+        }
+        val otherUris = uris.filterNot { it in mediaUris.toSet() }
+
+        var deleted = 0
+        for (uri in otherUris) {
+            if (deleteUriDirect(uri)) deleted++
+        }
+
+        if (mediaUris.isEmpty()) {
+            return if (deleted > 0) DeleteTracksResult.Deleted(deleted) else DeleteTracksResult.Empty
+        }
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            val consent = runCatching {
+                MediaStore.createDeleteRequest(context.contentResolver, mediaUris).intentSender
+            }.getOrNull()
+            if (consent != null) return DeleteTracksResult.NeedConsent(consent)
+        }
+
+        var recoverable: android.content.IntentSender? = null
+        for (uri in mediaUris) {
+            try {
+                if (deleteUriDirect(uri)) deleted++
+            } catch (error: SecurityException) {
+                if (Build.VERSION.SDK_INT >= 29 && error is RecoverableSecurityException) {
+                    recoverable = error.userAction.actionIntent.intentSender
+                    break
+                }
+            }
+        }
+        if (recoverable != null) return DeleteTracksResult.NeedConsent(recoverable)
+        return if (deleted > 0) DeleteTracksResult.Deleted(deleted)
+        else DeleteTracksResult.Error("No se pudo eliminar")
+    }
+
+    private fun deleteUriDirect(uri: Uri): Boolean {
+        runCatching {
+            if (context.contentResolver.delete(uri, null, null) > 0) return true
+        }.onFailure { error ->
+            if (error is SecurityException) throw error
+        }
+        if (DocumentsContract.isDocumentUri(context, uri)) {
+            val removed = runCatching {
+                DocumentsContract.deleteDocument(context.contentResolver, uri)
+            }.getOrDefault(false)
+            if (removed) return true
+        }
+        if (uri.scheme == "file") {
+            val path = uri.path ?: return false
+            val file = File(path)
+            if (file.exists() && file.delete()) return true
+        }
+        return false
     }
 
     fun loadFromUri(uri: Uri, mimeHint: String?): Track {
@@ -379,16 +447,28 @@ class MediaStoreDataSource @Inject constructor(
     }
 
     private fun persistFrame(retriever: MediaMetadataRetriever, key: String): String? {
-        val frame = retriever.getFrameAtTime(1_000_000L) ?: retriever.frameAtTime ?: return null
-        return try {
+        return runCatching {
+            val frame = if (Build.VERSION.SDK_INT >= 27) {
+                retriever.getScaledFrameAtTime(
+                    1_000_000L,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    320,
+                    320,
+                ) ?: retriever.getScaledFrameAtTime(
+                    0L,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    320,
+                    320,
+                )
+            } else {
+                retriever.frameAtTime
+            } ?: return null
             val file = File(thumbsDir(), "$key.jpg")
             file.outputStream().use { out ->
                 frame.compress(Bitmap.CompressFormat.JPEG, 85, out)
             }
             Uri.fromFile(file).toString()
-        } catch (_: Exception) {
-            null
-        }
+        }.getOrNull()
     }
 
     private fun thumbsDir(): File =

@@ -8,4 +8,5 @@ class GetLocalTracksUseCase @Inject constructor(
 ) {
     fun observe() = repository.observeTracks()
     suspend fun refresh() = repository.getTracks()
+    fun dropCached(ids: Set<String>) = repository.dropCached(ids)
 }

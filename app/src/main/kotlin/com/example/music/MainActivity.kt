@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,14 +29,36 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         runCatching { enableEdgeToEdge() }
         super.onCreate(savedInstanceState)
-        setContent {
-            MusicTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = Background) {
-                    MusicApp()
+        // Sin LifecycleOwner: si se re-registra en ON_START, se comería el BackHandler de carpetas.
+        onBackPressedDispatcher.addCallback(
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    moveTaskToBack(true)
+                }
+            },
+        )
+        runCatching {
+            setContent {
+                MusicTheme {
+                    Surface(modifier = Modifier.fillMaxSize(), color = Background) {
+                        MusicApp()
+                    }
                 }
             }
         }
         runCatching { handleIncoming(intent) }
+    }
+
+    override fun finish() {
+        moveTaskToBack(true)
+    }
+
+    override fun finishAffinity() {
+        moveTaskToBack(true)
+    }
+
+    override fun finishAndRemoveTask() {
+        moveTaskToBack(true)
     }
 
     override fun onNewIntent(intent: Intent) {

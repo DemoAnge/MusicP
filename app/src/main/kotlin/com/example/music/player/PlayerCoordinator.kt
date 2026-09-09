@@ -130,8 +130,36 @@ class PlayerCoordinator @Inject constructor(
         _state.update { it.copy(repeatMode = mode) }
     }
 
+    override fun removeFromQueue(trackIds: Set<String>) {
+        if (trackIds.isEmpty()) return
+        CrashGuard.run {
+            val snapshot = _state.value
+            originalQueue = originalQueue.filter { it.id !in trackIds }
+            val remaining = snapshot.queue.filter { it.id !in trackIds }
+            val currentId = snapshot.currentTrack?.id
+            val currentDeleted = currentId != null && currentId in trackIds
+            if (!currentDeleted) {
+                val newIndex = remaining.indexOfFirst { it.id == currentId }
+                _state.update { it.copy(queue = remaining, queueIndex = newIndex) }
+                return@run
+            }
+            if (remaining.isEmpty()) {
+                CrashGuard.run { localPlayer.stop() }
+                _state.value = PlayerState(
+                    isShuffleEnabled = snapshot.isShuffleEnabled,
+                    repeatMode = snapshot.repeatMode,
+                )
+                return@run
+            }
+            val next = snapshot.queue.drop(snapshot.queueIndex + 1).firstOrNull { it.id !in trackIds }
+                ?: snapshot.queue.take(snapshot.queueIndex).firstOrNull { it.id !in trackIds }
+                ?: remaining.first()
+            playInternal(next, remaining, remaining.indexOfFirst { it.id == next.id }.coerceAtLeast(0))
+        }
+    }
+
     override fun release() {
-        localPlayer.release()
+        // El ExoPlayer es singleton: soltarlo cortaría la música en segundo plano.
     }
 
     private fun playInternal(track: Track, queue: List<Track>, index: Int) {

@@ -8,4 +8,8 @@ class ObserveLibraryPrefsUseCase @Inject constructor(
 ) {
     fun favorites() = prefs.observeFavoriteIds()
     fun recents() = prefs.observeRecentIds()
+    suspend fun removeIds(ids: Set<String>) = prefs.removeIds(ids)
+    fun lockScreenPromptDismissed() = prefs.observeLockScreenPromptDismissed()
+    suspend fun setLockScreenPromptDismissed(dismissed: Boolean) =
+        prefs.setLockScreenPromptDismissed(dismissed)
 }

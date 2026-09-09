@@ -15,4 +15,5 @@ class ControlPlaybackUseCase @Inject constructor(
     fun skipPrevious() = playerService.skipPrevious()
     fun setShuffle(enabled: Boolean) = playerService.setShuffle(enabled)
     fun setRepeat(mode: RepeatMode) = playerService.setRepeat(mode)
+    fun removeFromQueue(trackIds: Set<String>) = playerService.removeFromQueue(trackIds)
 }

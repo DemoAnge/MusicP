@@ -13,7 +13,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.music.core.CrashGuard
+import com.example.music.data.local_music.EmbeddedArtwork
 import com.example.music.domain.model.Track
+import java.io.File
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -66,7 +69,12 @@ class LocalPlayerService @Inject constructor(
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 CrashGuard.run {
                     _engineState.update { it.copy(isPlaying = isPlaying) }
-                    if (isPlaying) startPositionUpdates() else positionJob?.cancel()
+                    if (isPlaying) {
+                        startPlaybackService()
+                        startPositionUpdates()
+                    } else {
+                        positionJob?.cancel()
+                    }
                 }
             }
 
@@ -88,7 +96,6 @@ class LocalPlayerService @Inject constructor(
     }
 
     fun play(track: Track) {
-        CrashGuard.run { startPlaybackService() }
         val mediaUri = track.mediaUri.takeIf { it.isNotBlank() } ?: return
         val parsed = runCatching { Uri.parse(mediaUri) }.getOrNull() ?: return
         try {
@@ -117,10 +124,53 @@ class LocalPlayerService @Inject constructor(
                     durationMs = track.durationMs,
                 )
             }
+            CrashGuard.run { startPlaybackService() }
+            enrichArtwork(track)
         } catch (t: Throwable) {
             _engineState.update { it.copy(isPlaying = false) }
             _failed.tryEmit(t.message ?: "No se pudo reproducir")
         }
+    }
+
+    private fun enrichArtwork(track: Track) {
+        scope.launch {
+            val resolved = runCatching {
+                EmbeddedArtwork.resolve(context, track.id, track.mediaUri, track.isVideo)
+            }.getOrNull()
+            val artUri = resolved?.let { runCatching { Uri.parse(it) }.getOrNull() }
+            val bytes = withContext(Dispatchers.IO) { artUri?.let { loadArtworkBytes(it) } }
+            if (artUri == null && bytes == null) return@launch
+            CrashGuard.run {
+                val current = exoPlayer.currentMediaItem ?: return@run
+                if (current.mediaId != track.id) return@run
+                val index = exoPlayer.currentMediaItemIndex
+                if (index < 0) return@run
+                val meta = current.mediaMetadata.buildUpon()
+                    .setArtworkUri(artUri ?: current.mediaMetadata.artworkUri)
+                    .apply {
+                        if (bytes != null) {
+                            setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                        }
+                    }
+                    .build()
+                exoPlayer.replaceMediaItem(
+                    index,
+                    current.buildUpon().setMediaMetadata(meta).build(),
+                )
+            }
+            CrashGuard.run { startPlaybackService() }
+        }
+    }
+
+    private fun loadArtworkBytes(uri: Uri): ByteArray? {
+        return runCatching {
+            when (uri.scheme) {
+                "file" -> uri.path?.let { path ->
+                    File(path).takeIf { it.exists() && it.length() > 64L }?.readBytes()
+                }
+                else -> context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            }?.takeIf { it.size > 64 }
+        }.getOrNull()
     }
 
     fun pause() {
@@ -145,10 +195,7 @@ class LocalPlayerService @Inject constructor(
     }
 
     fun release() {
-        CrashGuard.run {
-            positionJob?.cancel()
-            exoPlayer.release()
-        }
+        CrashGuard.run { positionJob?.cancel() }
     }
 
     private fun startPositionUpdates() {

@@ -1,12 +1,17 @@
 package com.example.music.ui.library
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,17 +26,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.Sort
+
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -42,7 +55,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,14 +89,21 @@ import com.example.music.ui.components.PlayingBars
 import com.example.music.ui.components.formatBytes
 import com.example.music.ui.components.formatMs
 
+private val DeleteRed = Color(0xFFE53935)
+
 @Composable
 fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel(),
     modifier: Modifier = Modifier,
+    showLockScreenBanner: Boolean = false,
+    onEnableLockScreenControls: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val notice by viewModel.notice.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     val mediaPermissions = remember {
         if (Build.VERSION.SDK_INT >= 33) {
@@ -89,12 +112,16 @@ fun LibraryScreen(
                 Manifest.permission.READ_MEDIA_VIDEO,
             )
         } else {
-            listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            buildList {
+                add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                if (Build.VERSION.SDK_INT < 29) add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
         }
     }
 
     fun granted(): Boolean = mediaPermissions.any { permission ->
-        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        permission != Manifest.permission.WRITE_EXTERNAL_STORAGE &&
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
     }
 
     var hasPermission by remember { mutableStateOf(granted()) }
@@ -102,141 +129,297 @@ fun LibraryScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
-        hasPermission = mediaPermissions.any { result[it] == true } || granted()
+        hasPermission = mediaPermissions.any { permission ->
+            permission != Manifest.permission.WRITE_EXTERNAL_STORAGE && result[permission] == true
+        } || granted()
         if (hasPermission) viewModel.loadTracks()
     }
 
+    val deleteConsentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        viewModel.onDeleteConsentResult(result.resultCode == Activity.RESULT_OK)
+    }
+
     fun requestPermissions() {
-        val extra = buildList {
-            addAll(mediaPermissions)
-            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        permissionLauncher.launch(extra.toTypedArray())
+        permissionLauncher.launch(mediaPermissions.toTypedArray())
     }
 
     LaunchedEffect(hasPermission) {
         if (hasPermission) viewModel.loadTracks() else requestPermissions()
     }
 
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is LibraryEvent.RequestDeleteConsent -> {
+                    runCatching {
+                        deleteConsentLauncher.launch(IntentSenderRequest.Builder(event.sender).build())
+                    }
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(notice) {
+        val text = notice ?: return@LaunchedEffect
+        snackbar.showSnackbar(text)
+        viewModel.consumeNotice()
+    }
+
+    BackHandler(enabled = ui.selecting || ui.selectedGroupKey != null) {
+        if (ui.selecting) viewModel.exitSelection() else viewModel.closeGroup()
+    }
+
     val showSize = ui.sort == SortMode.SIZE_LARGE || ui.sort == SortMode.SIZE_SMALL
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Surface)
-            .padding(horizontal = 16.dp),
-    ) {
-        Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (ui.selectedGroupKey != null) {
-                IconButton(onClick = viewModel::closeGroup) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Volver",
-                        tint = OnBackground,
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Surface)
+                .padding(horizontal = 16.dp),
+        ) {
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (ui.selecting) {
+                    IconButton(onClick = viewModel::exitSelection) {
+                        Icon(Icons.Filled.Close, contentDescription = "Cancelar selección", tint = OnBackground)
+                    }
+                } else if (ui.selectedGroupKey != null) {
+                    IconButton(onClick = viewModel::closeGroup) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Volver",
+                            tint = OnBackground,
+                        )
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = when {
+                            ui.selecting -> {
+                                val n = ui.selectedIds.size
+                                if (n == 0) "Seleccionar" else if (n == 1) "1 seleccionada" else "$n seleccionadas"
+                            }
+                            else -> ui.selectedGroupTitle ?: "Tu biblioteca"
+                        },
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = OnBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = if (ui.selecting) {
+                            "Toca para marcar. Se borran del teléfono."
+                        } else {
+                            ui.countLabel.ifBlank { "Música y vídeo de este teléfono" }
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = ArtistGray,
                     )
                 }
+                if (ui.selecting) {
+                    IconButton(onClick = viewModel::selectAllVisible) {
+                        Icon(Icons.Filled.SelectAll, contentDescription = "Seleccionar todo", tint = OnBackground)
+                    }
+                    IconButton(
+                        onClick = { if (ui.selectedIds.isNotEmpty()) showDeleteConfirm = true },
+                        enabled = ui.selectedIds.isNotEmpty(),
+                    ) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = "Eliminar del dispositivo",
+                            tint = if (ui.selectedIds.isEmpty()) ArtistGray else DeleteRed,
+                        )
+                    }
+                } else {
+                    IconButton(onClick = viewModel::enterSelection) {
+                        Icon(Icons.Filled.Checklist, contentDescription = "Seleccionar", tint = OnBackground)
+                    }
+                    SortMenu(current = ui.sort, onSelect = viewModel::setSort)
+                }
             }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = ui.selectedGroupTitle ?: "Tu biblioteca",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = OnBackground,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            if (showLockScreenBanner && !ui.selecting) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(SurfaceElevated)
+                        .clickable(onClick = onEnableLockScreenControls)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Activa play, anterior y siguiente en bloqueo y en la notificación.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OnBackground,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Permitir", color = SpotifyGreen, style = MaterialTheme.typography.labelLarge)
+                }
+            }
+            if (!ui.selecting) {
+                Spacer(Modifier.height(8.dp))
+                BrowseChips(
+                    selected = ui.browse,
+                    onSelect = viewModel::setBrowse,
                 )
+            }
+            Spacer(Modifier.height(12.dp))
+
+            when {
+                !hasPermission -> {
+                    EmptyMessage(
+                        modifier = Modifier.weight(1f),
+                        title = "Permiso de audio",
+                        body = "Para armar tu biblioteca necesitamos acceso al audio y al vídeo de este teléfono, incluida la carpeta Descargas.",
+                        action = "Conceder permiso",
+                        onAction = { requestPermissions() },
+                    )
+                }
+                ui.showingGroups && ui.groups.isEmpty() -> {
+                    EmptyMessage(
+                        modifier = Modifier.weight(1f),
+                        title = "Sin resultados",
+                        body = "No hay audio ni vídeo visibles. Descarga un archivo al teléfono o ábrelo desde Descargas y pulsa actualizar.",
+                        action = "Actualizar",
+                        onAction = { viewModel.loadTracks() },
+                    )
+                }
+                !ui.showingGroups && ui.visibleTracks.isEmpty() -> {
+                    val (title, body) = when (ui.browse) {
+                        BrowseMode.FAVORITES -> "Sin queridas" to "Toca el corazón de una canción para guardarla aquí."
+                        BrowseMode.RECENTS -> "Sin recientes" to "Las canciones que reproduzcas aparecerán en esta lista."
+                        else -> "Sin canciones" to "No hay audio ni vídeo visibles. Descarga un archivo al teléfono o ábrelo desde Descargas y pulsa actualizar."
+                    }
+                    EmptyMessage(
+                        modifier = Modifier.weight(1f),
+                        title = title,
+                        body = body,
+                        action = "Actualizar",
+                        onAction = { viewModel.loadTracks() },
+                    )
+                }
+                else -> {
+                    if (!ui.selecting && !ui.showingGroups) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = viewModel::playAll,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = SpotifyGreen,
+                                    contentColor = Color.White,
+                                ),
+                            ) {
+                                Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Reproducir")
+                            }
+                            OutlinedButton(onClick = viewModel::shuffleAll) {
+                                Icon(Icons.Filled.Shuffle, contentDescription = null, tint = SpotifyGreen)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Aleatorio", color = OnBackground)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentPadding = PaddingValues(bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        if (ui.showingGroups) {
+                            itemsIndexed(
+                                ui.groups,
+                                key = { index, group -> "g:$index:${group.key}" },
+                            ) { _, group ->
+                                val groupSelected = group.tracks.isNotEmpty() &&
+                                    group.tracks.all { it.id in ui.selectedIds }
+                                GroupRow(
+                                    group = group,
+                                    selecting = ui.selecting,
+                                    selected = groupSelected,
+                                    onClick = {
+                                        if (ui.selecting) viewModel.toggleSelectGroup(group)
+                                        else viewModel.openGroup(group.key)
+                                    },
+                                    onLongClick = { viewModel.toggleSelectGroup(group) },
+                                )
+                            }
+                        } else {
+                            itemsIndexed(
+                                ui.visibleTracks,
+                                key = { index, track -> "t:$index:${track.id}:${track.mediaUri}" },
+                            ) { _, track ->
+                                val isCurrent = playerState.currentTrack?.id == track.id
+                                TrackRow(
+                                    track = track,
+                                    isCurrent = isCurrent,
+                                    isPlaying = isCurrent && playerState.isPlaying,
+                                    isFavorite = track.id in ui.favoriteIds,
+                                    showSize = showSize,
+                                    selecting = ui.selecting,
+                                    selected = track.id in ui.selectedIds,
+                                    onClick = {
+                                        if (ui.selecting) viewModel.toggleSelectTrack(track.id)
+                                        else viewModel.play(track)
+                                    },
+                                    onLongClick = {
+                                        if (ui.selecting) viewModel.toggleSelectTrack(track.id)
+                                        else viewModel.startSelection(track.id)
+                                    },
+                                    onToggleFavorite = { viewModel.toggleLiked(track.id) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(16.dp),
+        )
+    }
+
+    if (showDeleteConfirm) {
+        val n = ui.selectedIds.size
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = SurfaceElevated,
+            title = { Text("Eliminar del dispositivo", color = OnBackground) },
+            text = {
                 Text(
-                    text = ui.countLabel.ifBlank { "Música y vídeo de este teléfono" },
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = if (n == 1) {
+                        "Se borrará 1 archivo de este teléfono. No se puede deshacer."
+                    } else {
+                        "Se borrarán $n archivos de este teléfono. No se puede deshacer."
+                    },
                     color = ArtistGray,
                 )
-            }
-            SortMenu(current = ui.sort, onSelect = viewModel::setSort)
-        }
-        Spacer(Modifier.height(8.dp))
-        BrowseChips(
-            selected = ui.browse,
-            onSelect = viewModel::setBrowse,
-        )
-        Spacer(Modifier.height(12.dp))
-
-        when {
-            !hasPermission -> {
-                EmptyMessage(
-                    title = "Permiso de audio",
-                    body = "Para armar tu biblioteca necesitamos acceso al audio y al vídeo de este teléfono, incluida la carpeta Descargas.",
-                    action = "Conceder permiso",
-                    onAction = { requestPermissions() },
-                )
-            }
-            ui.showingGroups && ui.groups.isEmpty() -> {
-                EmptyMessage(
-                    title = "Sin resultados",
-                    body = "No hay audio ni vídeo visibles. Descarga un archivo al teléfono o ábrelo desde Descargas y pulsa actualizar.",
-                    action = "Actualizar",
-                    onAction = { viewModel.loadTracks() },
-                )
-            }
-            !ui.showingGroups && ui.visibleTracks.isEmpty() -> {
-                val (title, body) = when (ui.browse) {
-                    BrowseMode.FAVORITES -> "Sin queridas" to "Toca el corazón de una canción para guardarla aquí."
-                    BrowseMode.RECENTS -> "Sin recientes" to "Las canciones que reproduzcas aparecerán en esta lista."
-                    else -> "Sin canciones" to "No hay audio ni vídeo visibles. Descarga un archivo al teléfono o ábrelo desde Descargas y pulsa actualizar."
-                }
-                EmptyMessage(
-                    title = title,
-                    body = body,
-                    action = "Actualizar",
-                    onAction = { viewModel.loadTracks() },
-                )
-            }
-            else -> {
-                if (!ui.showingGroups) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = viewModel::playAll,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = SpotifyGreen,
-                                contentColor = Color.White,
-                            ),
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Reproducir")
-                        }
-                        OutlinedButton(onClick = viewModel::shuffleAll) {
-                            Icon(Icons.Filled.Shuffle, contentDescription = null, tint = SpotifyGreen)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Aleatorio", color = OnBackground)
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-                LazyColumn(
-                    contentPadding = PaddingValues(bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        viewModel.deleteSelected()
+                    },
                 ) {
-                    if (ui.showingGroups) {
-                        items(ui.groups, key = { "g:${it.key}" }) { group ->
-                            GroupRow(group = group, onClick = { viewModel.openGroup(group.key) })
-                        }
-                    } else {
-                        items(ui.visibleTracks, key = { "t:${it.id}:${it.mediaUri}" }) { track ->
-                            val isCurrent = playerState.currentTrack?.id == track.id
-                            TrackRow(
-                                track = track,
-                                isCurrent = isCurrent,
-                                isPlaying = isCurrent && playerState.isPlaying,
-                                isFavorite = track.id in ui.favoriteIds,
-                                showSize = showSize,
-                                onClick = { viewModel.play(track) },
-                                onToggleFavorite = { viewModel.toggleLiked(track.id) },
-                            )
-                        }
-                    }
+                    Text("Eliminar", color = DeleteRed)
                 }
-            }
-        }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancelar", color = OnBackground)
+                }
+            },
+        )
     }
 }
 
@@ -290,7 +473,7 @@ private fun SortMenu(
     )
     Box {
         IconButton(onClick = { expanded = true }) {
-            Icon(Icons.Filled.Sort, contentDescription = "Ordenar", tint = OnBackground)
+            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Ordenar", tint = OnBackground)
         }
         DropdownMenu(
             expanded = expanded,
@@ -315,19 +498,34 @@ private fun SortMenu(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GroupRow(
     group: LibraryGroup,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    selecting: Boolean = false,
+    selected: Boolean = false,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
+            .background(if (selected) SurfaceElevated else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (selecting) {
+            Icon(
+                imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                contentDescription = if (selected) "Seleccionada" else "No seleccionada",
+                tint = if (selected) SpotifyGreen else ArtistGray,
+                modifier = Modifier
+                    .padding(end = 8.dp)
+                    .size(24.dp),
+            )
+        }
         AlbumArt(
             artworkUri = group.artworkUri,
             contentDescription = group.title,
@@ -353,11 +551,13 @@ private fun GroupRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = ArtistGray,
-        )
+        if (!selecting) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = ArtistGray,
+            )
+        }
     }
 }
 
@@ -367,8 +567,9 @@ private fun EmptyMessage(
     body: String,
     action: String,
     onAction: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(24.dp),
@@ -387,6 +588,7 @@ private fun EmptyMessage(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TrackRow(
     track: Track,
@@ -395,17 +597,36 @@ fun TrackRow(
     onClick: () -> Unit,
     isFavorite: Boolean = false,
     showSize: Boolean = false,
+    selecting: Boolean = false,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
     onToggleFavorite: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(if (isCurrent) SurfaceElevated else Color.Transparent)
-            .clickable(onClick = onClick)
+            .background(if (selected || isCurrent) SurfaceElevated else Color.Transparent)
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                } else {
+                    Modifier.clickable(onClick = onClick)
+                },
+            )
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (selecting) {
+            Icon(
+                imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                contentDescription = if (selected) "Seleccionada" else "No seleccionada",
+                tint = if (selected) SpotifyGreen else ArtistGray,
+                modifier = Modifier
+                    .padding(end = 8.dp)
+                    .size(24.dp),
+            )
+        }
         AlbumArt(track = track, size = 52.dp)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -433,7 +654,7 @@ fun TrackRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (onToggleFavorite != null) {
+        if (!selecting && onToggleFavorite != null) {
             IconButton(
                 onClick = onToggleFavorite,
                 modifier = Modifier.size(36.dp),

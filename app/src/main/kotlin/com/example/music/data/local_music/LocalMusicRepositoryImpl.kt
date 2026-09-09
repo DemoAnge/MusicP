@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import com.example.music.domain.model.DeleteTracksResult
 import com.example.music.domain.model.Track
 import com.example.music.domain.repository.LocalMusicRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -84,6 +85,17 @@ class LocalMusicRepositoryImpl @Inject constructor(
             val parsed = runCatching { Uri.parse(uri) }.getOrThrow()
             dataSource.loadFromUri(parsed, mimeType)
         }
+
+    override suspend fun deleteTracks(tracks: List<Track>): DeleteTracksResult =
+        withContext(Dispatchers.IO) {
+            runCatching { dataSource.requestDelete(tracks) }
+                .getOrElse { DeleteTracksResult.Error(it.message ?: "No se pudo eliminar") }
+        }
+
+    override fun dropCached(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        tracks.value = tracks.value.filter { it.id !in ids }
+    }
 
     fun asSearchFlow(query: String): Flow<List<Track>> =
         tracks.map { list ->

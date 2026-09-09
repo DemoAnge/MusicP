@@ -7,4 +7,7 @@ interface LibraryPrefsRepository {
     fun observeRecentIds(): Flow<List<String>>
     suspend fun toggleFavorite(trackId: String)
     suspend fun recordPlay(trackId: String)
+    suspend fun removeIds(ids: Set<String>)
+    fun observeLockScreenPromptDismissed(): Flow<Boolean>
+    suspend fun setLockScreenPromptDismissed(dismissed: Boolean)
 }
