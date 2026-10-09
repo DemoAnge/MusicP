@@ -1,12 +1,12 @@
 <resources>
-    <string name="app_name">Music</string>
+    <string name="app_name">MusicP</string>
     <string name="playback_channel_name">Reproducción</string>
     <string name="playback_channel_description">Controles en la notificación y en la pantalla de bloqueo</string>
     <string name="playback_notification_text">Reproduciendo</string>
     <string name="widget_name">Reproductor</string>
     <string name="widget_description">Carátula, play, anterior y siguiente en la pantalla de inicio</string>
     <string name="widget_idle_title">Nada en reproducción</string>
-    <string name="widget_idle_artist">Abre Music y elige una canción</string>
+    <string name="widget_idle_artist">Abre MusicP y elige una canción</string>
     <string name="widget_artwork">Carátula</string>
     <string name="widget_previous">Anterior</string>
     <string name="widget_next">Siguiente</string>

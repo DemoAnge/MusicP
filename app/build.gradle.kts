@@ -64,21 +64,14 @@ kotlin {
     }
 }
 
-val releaseApk = layout.buildDirectory.file("outputs/apk/release/app-release.apk")
-val namedApk = layout.buildDirectory.file("outputs/apk/release/music.apk")
-val rootApk = rootProject.layout.projectDirectory.file("music.apk")
-
 tasks.configureEach {
     if (name != "assembleRelease") return@configureEach
-    val fromApk = releaseApk
-    val toNamed = namedApk
-    val toRoot = rootApk
     doLast {
-        val apk = fromApk.get().asFile
-        if (apk.exists()) {
-            apk.copyTo(toNamed.get().asFile, overwrite = true)
-            apk.copyTo(toRoot.asFile, overwrite = true)
-        }
+        val apk = layout.buildDirectory.file("outputs/apk/release/app-release.apk").get().asFile
+        if (!apk.exists()) return@doLast
+        val dest = rootProject.layout.projectDirectory.file("apk/MusicP.apk").asFile
+        dest.parentFile.mkdirs()
+        apk.copyTo(dest, overwrite = true)
     }
 }
 
