@@ -13,9 +13,7 @@ class SearchYouTubeUseCase @Inject constructor(
     suspend operator fun invoke(query: String): List<Track> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return emptyList()
-        val found = runCatching { repository.search(trimmed) }.getOrDefault(emptyList())
-        if (found.isNotEmpty()) return found
-        return listOf(placeholder(trimmed))
+        return runCatching { repository.search(trimmed) }.getOrDefault(emptyList())
     }
 
     fun placeholder(query: String): Track {

@@ -26,6 +26,7 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
     private val preferBrave = MutableStateFlow(
         prefs.getBoolean(KEY_PREFER_BRAVE, true),
     )
+    private val searchHistory = MutableStateFlow(readSearchHistory())
 
     override fun observeFavoriteIds(): Flow<Set<String>> = favorites.asStateFlow()
 
@@ -69,6 +70,34 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun observeSearchHistory(): Flow<List<String>> = searchHistory.asStateFlow()
+
+    override suspend fun recordSearch(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return
+        mutex.withLock {
+            val next = (listOf(trimmed) + searchHistory.value.filter { !it.equals(trimmed, ignoreCase = true) })
+                .take(MAX_SEARCH_HISTORY)
+            searchHistory.value = next
+            prefs.edit().putString(KEY_SEARCH_HISTORY, next.joinToString("\n")).apply()
+        }
+    }
+
+    override suspend fun removeSearchQuery(query: String) {
+        mutex.withLock {
+            val next = searchHistory.value.filter { !it.equals(query, ignoreCase = true) }
+            searchHistory.value = next
+            prefs.edit().putString(KEY_SEARCH_HISTORY, next.joinToString("\n")).apply()
+        }
+    }
+
+    override suspend fun clearSearchHistory() {
+        mutex.withLock {
+            searchHistory.value = emptyList()
+            prefs.edit().remove(KEY_SEARCH_HISTORY).apply()
+        }
+    }
+
     override suspend fun removeIds(ids: Set<String>) {
         if (ids.isEmpty()) return
         mutex.withLock {
@@ -86,8 +115,12 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
     private fun readFavorites(): Set<String> =
         prefs.getStringSet(KEY_FAVORITES, emptySet())?.toSet().orEmpty()
 
-    private fun readRecents(): List<String> =
-        prefs.getString(KEY_RECENTS, "")
+    private fun readRecents(): List<String> = readLineList(KEY_RECENTS)
+
+    private fun readSearchHistory(): List<String> = readLineList(KEY_SEARCH_HISTORY)
+
+    private fun readLineList(key: String): List<String> =
+        prefs.getString(key, "")
             ?.split('\n')
             ?.map { it.trim() }
             ?.filter { it.isNotEmpty() }
@@ -99,6 +132,8 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         const val KEY_RECENTS = "recent_ids"
         const val KEY_LOCK_SCREEN_PROMPT = "lock_screen_prompt_dismissed"
         const val KEY_PREFER_BRAVE = "prefer_brave"
+        const val KEY_SEARCH_HISTORY = "search_history"
         const val MAX_RECENTS = 80
+        const val MAX_SEARCH_HISTORY = 12
     }
 }

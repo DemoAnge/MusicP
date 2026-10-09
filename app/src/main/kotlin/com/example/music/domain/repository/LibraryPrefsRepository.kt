@@ -12,4 +12,8 @@ interface LibraryPrefsRepository {
     suspend fun setLockScreenPromptDismissed(dismissed: Boolean)
     fun observePreferBrave(): Flow<Boolean>
     suspend fun setPreferBrave(enabled: Boolean)
+    fun observeSearchHistory(): Flow<List<String>>
+    suspend fun recordSearch(query: String)
+    suspend fun removeSearchQuery(query: String)
+    suspend fun clearSearchHistory()
 }

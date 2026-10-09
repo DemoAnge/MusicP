@@ -14,4 +14,8 @@ class ObserveLibraryPrefsUseCase @Inject constructor(
         prefs.setLockScreenPromptDismissed(dismissed)
     fun preferBrave() = prefs.observePreferBrave()
     suspend fun setPreferBrave(enabled: Boolean) = prefs.setPreferBrave(enabled)
+    fun searchHistory() = prefs.observeSearchHistory()
+    suspend fun recordSearch(query: String) = prefs.recordSearch(query)
+    suspend fun removeSearchQuery(query: String) = prefs.removeSearchQuery(query)
+    suspend fun clearSearchHistory() = prefs.clearSearchHistory()
 }

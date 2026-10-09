@@ -205,13 +205,15 @@ Cada fase es entregable, testeable y no depende de las posteriores. Criterio de 
 
 **Riesgo:** Brave Shields puede bloquear youtube.com en localhost. Mitigación: texto en el puente “permite YouTube en esta página” y probar `youtube-nocookie.com` embed.
 
-### Fase 4 — Búsqueda unificada
+### Fase 4 — Búsqueda unificada ✅
 **Objetivo:** una caja, dos mundos.
 
 - Resultados locales agrupados (canciones / artistas / álbumes).
 - Bloque “YouTube · Brave” con 5 candidatos (Data API) o CTA “Buscar en Brave”.
 - Historial de búsquedas recientes.
 - Play local vs play web elige motor; se puede “reproducir después” en la misma cola.
+
+**Hecho.** Una caja agrupa canciones (título primero), artistas y álbumes locales. El bloque YouTube lista hasta 5 videos si hay Data API, o abre Brave. El historial se guarda en preferencias. Play elige motor; “reproducir después” usa la cola mixta del coordinator.
 
 **Aceptación:** “Bohemian Rhapsody” encuentra el archivo si existe; si no, lanza YouTube en Brave sin salir del modelo mental de la app.
 
