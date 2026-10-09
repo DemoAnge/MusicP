@@ -1,6 +1,7 @@
 package com.example.music.core.di
 
 import com.example.music.core.network.LyricsApi
+import com.example.music.core.network.YouTubeApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -39,4 +40,23 @@ object NetworkModule {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(LyricsApi::class.java)
+
+    @Provides
+    @Singleton
+    @YouTubeClient
+    fun provideYouTubeOkHttp(): OkHttpClient =
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+
+    @Provides
+    @Singleton
+    fun provideYouTubeApi(@YouTubeClient client: OkHttpClient): YouTubeApi =
+        Retrofit.Builder()
+            .baseUrl("https://www.googleapis.com/youtube/v3/")
+            .client(client)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(YouTubeApi::class.java)
 }

@@ -109,6 +109,7 @@ class NowPlayingViewModel @Inject constructor(
     fun playQueueIndex(index: Int) = controls.playQueueIndex(index)
     fun removeFromQueue(trackId: String) = controls.removeFromQueue(setOf(trackId))
     fun moveInQueue(fromIndex: Int, toIndex: Int) = controls.moveInQueue(fromIndex, toIndex)
+    fun reopenWebBridge() = controls.reopenWebBridge()
 
     private suspend fun extractPalette(artworkUri: String?): List<Color> = withContext(Dispatchers.IO) {
         if (artworkUri.isNullOrBlank()) return@withContext listOf(Background, Surface)

@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -38,6 +40,7 @@ fun SearchScreen(
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
     val results by viewModel.results.collectAsStateWithLifecycle()
+    val youtubeResults by viewModel.youtubeResults.collectAsStateWithLifecycle()
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
 
     Column(
@@ -71,10 +74,7 @@ fun SearchScreen(
         Spacer(Modifier.height(12.dp))
         when {
             query.isBlank() -> {
-                Hint("Escribe para buscar en la música de este teléfono.")
-            }
-            results.isEmpty() -> {
-                Hint("Sin resultados para “$query”.")
+                Hint("Escribe para buscar en la música de este teléfono. Luego puedes abrir YouTube en Brave.")
             }
             else -> {
                 LazyColumn(
@@ -84,15 +84,67 @@ fun SearchScreen(
                     contentPadding = PaddingValues(bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    items(results, key = { "s:${it.id}:${it.mediaUri}" }) { track ->
-                        val isCurrent = playerState.currentTrack?.id == track.id
-                        TrackRow(
-                            track = track,
-                            isCurrent = isCurrent,
-                            isPlaying = isCurrent && playerState.isPlaying,
-                            onClick = { viewModel.play(track) },
-                            onPlayNext = { viewModel.playNext(track) },
-                        )
+                    if (results.isEmpty()) {
+                        item {
+                            Text(
+                                "Sin resultados locales para “$query”.",
+                                color = ArtistGray,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                        }
+                    } else {
+                        items(results, key = { "s:${it.id}:${it.mediaUri}" }) { track ->
+                            val isCurrent = playerState.currentTrack?.id == track.id
+                            TrackRow(
+                                track = track,
+                                isCurrent = isCurrent,
+                                isPlaying = isCurrent && playerState.isPlaying,
+                                onClick = { viewModel.play(track) },
+                                onPlayNext = { viewModel.playNext(track) },
+                            )
+                        }
+                    }
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = viewModel::searchOnYouTube,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Accent,
+                                contentColor = OnBackground,
+                            ),
+                        ) {
+                            Text("Buscar en YouTube (Brave)")
+                        }
+                        if (!viewModel.hasYouTubeKey) {
+                            Text(
+                                "Sin clave de Data API: se abre Brave y pegas el enlace en el puente.",
+                                color = ArtistGray,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                            )
+                        }
+                    }
+                    if (youtubeResults.isNotEmpty()) {
+                        item {
+                            Text(
+                                "YouTube · Brave",
+                                color = OnBackground,
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                            )
+                        }
+                        items(youtubeResults, key = { "yt:${it.id}" }) { track ->
+                            val isCurrent = playerState.currentTrack?.id == track.id
+                            TrackRow(
+                                track = track,
+                                isCurrent = isCurrent,
+                                isPlaying = isCurrent && playerState.isPlaying,
+                                onClick = { viewModel.play(track) },
+                                onPlayNext = { viewModel.playNext(track) },
+                            )
+                        }
                     }
                 }
             }

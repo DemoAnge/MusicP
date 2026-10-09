@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.androidApplication)
@@ -17,6 +18,15 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0"
+        val youtubeKey = run {
+            val file = rootProject.file("local.properties")
+            if (!file.exists()) return@run ""
+            val props = Properties()
+            file.inputStream().use { props.load(it) }
+            props.getProperty("YOUTUBE_API_KEY", "").orEmpty()
+        }
+        val escaped = youtubeKey.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")
+        buildConfigField("String", "YOUTUBE_API_KEY", "\"$escaped\"")
     }
 
     packaging {
@@ -106,4 +116,5 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.androidx.palette.ktx)
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.browser)
 }

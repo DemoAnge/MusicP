@@ -14,6 +14,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.music.core.CrashGuard
 import com.example.music.data.local_music.EmbeddedArtwork
+import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.RepeatMode
 import com.example.music.domain.model.Track
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -219,7 +220,9 @@ class LocalPlayerService @Inject constructor(
     }
 
     fun canPlay(track: Track): Boolean {
+        if (track.source == PlaybackSource.WEB) return false
         if (track.mediaUri.isBlank()) return false
+        if (track.mediaUri.startsWith("yt:") || track.mediaUri.startsWith("ytsearch:")) return false
         val uri = runCatching { Uri.parse(track.mediaUri) }.getOrNull() ?: return false
         return when (uri.scheme) {
             "file" -> uri.path?.let { path -> File(path).exists() } == true

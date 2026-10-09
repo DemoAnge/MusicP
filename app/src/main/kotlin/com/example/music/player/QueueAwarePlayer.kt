@@ -12,6 +12,8 @@ class QueueAwarePlayer(
     player: Player,
     private val onSkipNext: () -> Unit,
     private val onSkipPrevious: () -> Unit,
+    private val onPlay: () -> Unit,
+    private val onPause: () -> Unit,
 ) : ForwardingPlayer(player) {
 
     override fun getAvailableCommands(): Player.Commands {
@@ -40,6 +42,14 @@ class QueueAwarePlayer(
             -> true
             else -> super.isCommandAvailable(command)
         }
+    }
+
+    override fun play() = onPlay()
+
+    override fun pause() = onPause()
+
+    override fun setPlayWhenReady(playWhenReady: Boolean) {
+        if (playWhenReady) onPlay() else onPause()
     }
 
     override fun seekToNext() = onSkipNext()

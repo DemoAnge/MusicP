@@ -31,6 +31,7 @@ import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.OnBackground
 import com.example.music.core.theme.Accent
 import com.example.music.core.theme.SurfaceElevated
+import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.PlayerState
 
 @Composable
@@ -80,7 +81,11 @@ fun MiniPlayer(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = track.artist,
+                        text = if (track.source == PlaybackSource.WEB) {
+                            "${track.artist} · Brave"
+                        } else {
+                            track.artist
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = ArtistGray,
                         maxLines = 1,

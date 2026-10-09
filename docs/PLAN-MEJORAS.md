@@ -180,7 +180,7 @@ Cada fase es entregable, testeable y no depende de las posteriores. Criterio de 
 
 **Aceptación:** matas la app y reanudas; skip entre pistas locales sin silencio largo; la cola se edita en UI.
 
-### Fase 3 — Brave + YouTube (túnel MVP)
+### Fase 3 — Brave + YouTube (túnel MVP) ✅
 **Objetivo:** si Brave existe, buscar y reproducir en YouTube bajo el mando nativo.
 
 3.1 Detección: `isBraveInstalled()`. Ajustes: “Reproducir web en Brave”. Si no está, CTA a Play Store (`market://details?id=com.brave.browser`) y fallback al navegador por defecto.
@@ -198,6 +198,8 @@ Cada fase es entregable, testeable y no depende de las posteriores. Criterio de 
 3.7 Now Playing: chip “Suena en Brave”; si el puente se desconecta, banner “Vuelve a abrir Brave”. Rewind/seek/skip via WS.
 
 3.8 Audio focus: pause local ↔ pause puente.
+
+**Hecho.** Detección de Brave (`queries` + Play Store CTA), puente HTTP en `127.0.0.1` con token, página IFrame (`youtube-nocookie.com`), `BrowserTunnelPlayer` enrutado por `PlayerCoordinator`, chip “Suena en Brave”, ajustes, búsqueda CTA / Data API v3 opcional vía `YOUTUBE_API_KEY` en `local.properties`.
 
 **Aceptación:** con Brave instalado, una búsqueda web abre Brave, un toque activa audio, y desde la app puedes pausar, rewind 10 s y skip. Sin extraer audio. Sin YouTube Data API no oficial.
 

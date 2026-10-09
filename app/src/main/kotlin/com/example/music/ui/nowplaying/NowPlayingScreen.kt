@@ -39,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,6 +68,7 @@ import com.example.music.core.theme.OnBackground
 import com.example.music.core.theme.SeekTrack
 import com.example.music.core.theme.Accent
 import com.example.music.domain.model.LyricsLine
+import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.RepeatMode
 import com.example.music.ui.components.AlbumArt
 import com.example.music.ui.components.ThinSeekBar
@@ -246,6 +248,35 @@ fun NowPlayingScreen(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (track.source == PlaybackSource.WEB) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Suena en Brave",
+                    color = Accent,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                if (!playerState.webBridgeConnected) {
+                    Text(
+                        text = "Vuelve a abrir Brave. Deja la pestaña del puente abierta.",
+                        color = ArtistGray,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center,
+                    )
+                    TextButton(onClick = viewModel::reopenWebBridge) {
+                        Text("Abrir Brave", color = Accent)
+                    }
+                } else if (playerState.webNeedsGesture) {
+                    Text(
+                        text = "Toca “Activar sonido” en Brave una vez.",
+                        color = ArtistGray,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center,
+                    )
+                    TextButton(onClick = viewModel::reopenWebBridge) {
+                        Text("Abrir Brave", color = Accent)
+                    }
+                }
+            }
 
             Spacer(Modifier.height(8.dp))
             ThinSeekBar(

@@ -23,6 +23,9 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
     private val lockScreenPromptDismissed = MutableStateFlow(
         prefs.getBoolean(KEY_LOCK_SCREEN_PROMPT, false),
     )
+    private val preferBrave = MutableStateFlow(
+        prefs.getBoolean(KEY_PREFER_BRAVE, true),
+    )
 
     override fun observeFavoriteIds(): Flow<Set<String>> = favorites.asStateFlow()
 
@@ -57,6 +60,15 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun observePreferBrave(): Flow<Boolean> = preferBrave.asStateFlow()
+
+    override suspend fun setPreferBrave(enabled: Boolean) {
+        mutex.withLock {
+            preferBrave.value = enabled
+            prefs.edit().putBoolean(KEY_PREFER_BRAVE, enabled).apply()
+        }
+    }
+
     override suspend fun removeIds(ids: Set<String>) {
         if (ids.isEmpty()) return
         mutex.withLock {
@@ -86,6 +98,7 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         const val KEY_FAVORITES = "favorite_ids"
         const val KEY_RECENTS = "recent_ids"
         const val KEY_LOCK_SCREEN_PROMPT = "lock_screen_prompt_dismissed"
+        const val KEY_PREFER_BRAVE = "prefer_brave"
         const val MAX_RECENTS = 80
     }
 }

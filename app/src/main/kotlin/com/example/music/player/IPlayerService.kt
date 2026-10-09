@@ -23,5 +23,7 @@ interface IPlayerService {
     fun playQueueIndex(index: Int)
     fun removeFromQueue(trackIds: Set<String>)
     fun clearError()
+    fun seekBy(deltaMs: Long)
+    fun reopenWebBridge()
     fun release()
 }

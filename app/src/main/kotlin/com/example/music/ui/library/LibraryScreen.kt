@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.QueuePlayNext
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
 
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
@@ -98,6 +99,7 @@ fun LibraryScreen(
     modifier: Modifier = Modifier,
     showLockScreenBanner: Boolean = false,
     onEnableLockScreenControls: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
@@ -238,6 +240,9 @@ fun LibraryScreen(
                         )
                     }
                 } else {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Ajustes", tint = OnBackground)
+                    }
                     IconButton(onClick = viewModel::enterSelection) {
                         Icon(Icons.Filled.Checklist, contentDescription = "Seleccionar", tint = OnBackground)
                     }

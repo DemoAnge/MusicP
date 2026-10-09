@@ -23,9 +23,18 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.example.music.R
 import com.example.music.core.CrashGuard
+import com.example.music.domain.model.PlaybackSource
 import com.google.common.collect.ImmutableList
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 
 @UnstableApi
 @AndroidEntryPoint
@@ -39,11 +48,17 @@ class MusicPlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var sessionPlayer: QueueAwarePlayer? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate() {
         super.onCreate()
         CrashGuard.run { ensureChannel() }
         CrashGuard.run { setupSession() }
+        coordinator.state
+            .map { Triple(it.currentTrack?.id, it.isPlaying, it.currentTrack?.title) }
+            .distinctUntilChanged()
+            .onEach { enterForeground() }
+            .launchIn(serviceScope)
         enterForeground()
     }
 
@@ -59,14 +74,17 @@ class MusicPlaybackService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val keepPlaying = runCatching {
-            val player = localPlayer.exoPlayer
-            player.playWhenReady && player.playbackState != Player.STATE_IDLE
+            coordinator.state.value.isPlaying || run {
+                val player = localPlayer.exoPlayer
+                player.playWhenReady && player.playbackState != Player.STATE_IDLE
+            }
         }.getOrDefault(false)
         if (keepPlaying) return
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
+        serviceScope.cancel()
         runCatching {
             mediaSession?.release()
             mediaSession = null
@@ -80,6 +98,8 @@ class MusicPlaybackService : MediaSessionService() {
             player = localPlayer.exoPlayer,
             onSkipNext = { CrashGuard.run { coordinator.skipNext() } },
             onSkipPrevious = { CrashGuard.run { coordinator.skipPrevious() } },
+            onPlay = { CrashGuard.run { coordinator.resume() } },
+            onPause = { CrashGuard.run { coordinator.pause() } },
         )
         sessionPlayer = player
         setMediaNotificationProvider(ControlsNotificationProvider())
@@ -155,15 +175,22 @@ class MusicPlaybackService : MediaSessionService() {
     }
 
     private fun buildMediaNotification(): Notification {
+        val snapshot = coordinator.state.value
         val exo = localPlayer.exoPlayer
-        val playing = runCatching { exo.isPlaying || exo.playWhenReady }.getOrDefault(false)
+        val playing = snapshot.isPlaying ||
+            runCatching { exo.isPlaying || exo.playWhenReady }.getOrDefault(false)
         val metadata = runCatching { exo.mediaMetadata }.getOrNull()
-        val title = metadata?.title?.toString()?.takeIf { it.isNotBlank() }
-            ?: coordinator.state.value.currentTrack?.title
+        val track = snapshot.currentTrack
+        val title = track?.title
+            ?: metadata?.title?.toString()?.takeIf { it.isNotBlank() }
             ?: getString(R.string.app_name)
-        val artist = metadata?.artist?.toString()?.takeIf { it.isNotBlank() }
-            ?: coordinator.state.value.currentTrack?.artist
-            ?: getString(R.string.playback_notification_text)
+        val artist = if (track?.source == PlaybackSource.WEB) {
+            track.artist.ifBlank { "Brave" }
+        } else {
+            metadata?.artist?.toString()?.takeIf { it.isNotBlank() }
+                ?: track?.artist
+                ?: getString(R.string.playback_notification_text)
+        }
         val playPauseIcon = if (playing) R.drawable.ic_widget_pause else R.drawable.ic_widget_play
         val playPauseLabel = if (playing) "Pausar" else "Reproducir"
         val playPauseAction = if (playing) ACTION_PAUSE else ACTION_PLAY

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Music · YouTube</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; background: #121212; color: #fff; }
+    .wrap { padding: 16px; max-width: 560px; margin: 0 auto; }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    p { color: #b3b3b3; font-size: 14px; line-height: 1.4; }
+    #player { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 8px; overflow: hidden; }
+    button {
+      display: block; width: 100%; margin: 12px 0; padding: 16px;
+      border: 0; border-radius: 28px; font-size: 18px; font-weight: 700; cursor: pointer;
+    }
+    #arm { background: #1DB954; color: #fff; }
+    #arm.hidden { display: none; }
+    input {
+      width: 100%; box-sizing: border-box; padding: 12px; border-radius: 8px;
+      border: 1px solid #333; background: #282828; color: #fff; font-size: 16px;
+    }
+    .ok { color: #1DB954; }
+    .warn { color: #e6b800; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Puente YouTube</h1>
+    <p>Deja esta pestaña abierta. El teléfono manda play, pausa, rewind y skip. No cierres Brave.</p>
+    <p>Si el video no carga, en Shields de Brave permite YouTube en esta página.</p>
+    <p id="status" class="warn">Conectando con la app…</p>
+    <div id="player"></div>
+    <button id="arm" type="button">Activar sonido</button>
+    <p id="query"></p>
+    <input id="url" placeholder="Pega un enlace de YouTube si hace falta" />
+  </div>
+  <script>
+    const TOKEN = new URLSearchParams(location.search).get("token") || "";
+    let player = null;
+    let armed = false;
+    let lastCmd = "";
+    let saidHello = false;
+    const statusEl = document.getElementById("status");
+    const armBtn = document.getElementById("arm");
+    const queryEl = document.getElementById("query");
+    const urlEl = document.getElementById("url");
+
+    function setStatus(text, ok) {
+      statusEl.textContent = text;
+      statusEl.className = ok ? "ok" : "warn";
+    }
+
+    function parseId(raw) {
+      if (!raw) return "";
+      const s = String(raw).trim();
+      if (/^[\w-]{11}$/.test(s)) return s;
+      try {
+        const u = new URL(s);
+        if (u.hostname.includes("youtu.be")) return u.pathname.replace("/", "").slice(0, 11);
+        if (u.searchParams.get("v")) return u.searchParams.get("v");
+        const parts = u.pathname.split("/").filter(Boolean);
+        const embed = parts.indexOf("embed");
+        if (embed >= 0 && parts[embed + 1]) return parts[embed + 1].slice(0, 11);
+        const shorts = parts.indexOf("shorts");
+        if (shorts >= 0 && parts[shorts + 1]) return parts[shorts + 1].slice(0, 11);
+      } catch (e) {}
+      return "";
+    }
+
+    function loadId(id, autoplay) {
+      if (!id || !player) return;
+      if (autoplay && armed) player.loadVideoById(id);
+      else player.cueVideoById(id);
+    }
+
+    function handle(cmd) {
+      if (!cmd || !cmd.type) return;
+      lastCmd = JSON.stringify(cmd);
+      if (cmd.type === "load") {
+        queryEl.textContent = cmd.title || "";
+        loadId(cmd.videoId, cmd.autoplay !== false);
+      } else if (cmd.type === "search") {
+        queryEl.textContent = "Busca o pega el enlace de: " + (cmd.q || "");
+        urlEl.focus();
+      } else if (cmd.type === "play") {
+        if (player && armed) player.playVideo();
+        else setStatus("Toca Activar sonido una vez", false);
+      } else if (cmd.type === "pause") {
+        if (player) player.pauseVideo();
+      } else if (cmd.type === "seek") {
+        if (player) player.seekTo((cmd.positionMs || 0) / 1000, true);
+      } else if (cmd.type === "rewind") {
+        if (!player) return;
+        const t = Math.max(0, player.getCurrentTime() + (cmd.deltaMs || -10000) / 1000);
+        player.seekTo(t, true);
+      }
+    }
+
+    function pushState() {
+      if (!player || typeof player.getPlayerState !== "function") return;
+      const st = player.getPlayerState();
+      const data = player.getVideoData ? player.getVideoData() : {};
+      const body = JSON.stringify({
+        type: "state",
+        playing: st === 1,
+        positionMs: Math.round((player.getCurrentTime() || 0) * 1000),
+        durationMs: Math.round((player.getDuration() || 0) * 1000),
+        title: data.title || "",
+        artist: data.author || "",
+        videoId: data.video_id || "",
+        needsGesture: !armed,
+      });
+      fetch("/state?token=" + encodeURIComponent(TOKEN), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body,
+      }).catch(function () {});
+    }
+
+    function poll() {
+      fetch("/poll?token=" + encodeURIComponent(TOKEN))
+        .then(function (r) { return r.json(); })
+        .then(function (cmds) {
+          setStatus("Conectado a Music", true);
+          if (!saidHello) {
+            saidHello = true;
+            fetch("/state?token=" + encodeURIComponent(TOKEN), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "hello", armed: armed }),
+            }).catch(function () {});
+          }
+          (cmds || []).forEach(handle);
+        })
+        .catch(function () { setStatus("Reconectando…", false); })
+        .finally(function () { setTimeout(poll, 280); });
+    }
+
+    armBtn.addEventListener("click", function () {
+      armed = true;
+      armBtn.classList.add("hidden");
+      setStatus("Sonido listo. Ya puedes mandar desde el teléfono.", true);
+      if (player) player.playVideo();
+      fetch("/state?token=" + encodeURIComponent(TOKEN), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "hello", armed: true }),
+      }).catch(function () {});
+    });
+
+    urlEl.addEventListener("change", function () {
+      const id = parseId(urlEl.value);
+      if (id) loadId(id, true);
+    });
+
+    window.onYouTubeIframeAPIReady = function () {
+      player = new YT.Player("player", {
+        width: "100%",
+        height: "240",
+        host: "https://www.youtube-nocookie.com",
+        playerVars: { playsinline: 1, rel: 0, origin: location.origin },
+        events: {
+          onReady: function () { setStatus("Player listo. Toca Activar sonido.", false); },
+          onStateChange: function (e) {
+            if (e.data === 0) {
+              fetch("/state?token=" + encodeURIComponent(TOKEN), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type: "ended" }),
+              }).catch(function () {});
+            }
+            pushState();
+          },
+          onError: function () {
+            fetch("/state?token=" + encodeURIComponent(TOKEN), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "error", message: "YouTube no pudo cargar el video" }),
+            }).catch(function () {});
+          },
+        },
+      });
+    };
+  </script>
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script>poll(); setInterval(pushState, 500);</script>
+</body>
+</html>

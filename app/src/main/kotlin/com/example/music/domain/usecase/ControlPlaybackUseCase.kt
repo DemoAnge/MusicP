@@ -12,12 +12,8 @@ class ControlPlaybackUseCase @Inject constructor(
     fun pause() = playerService.pause()
     fun resume() = playerService.resume()
     fun seekTo(positionMs: Long) = playerService.seekTo(positionMs)
-    fun seekBy(deltaMs: Long) {
-        val snapshot = playerService.state.value
-        val duration = snapshot.durationMs
-        val ceiling = if (duration > 0L) duration else Long.MAX_VALUE
-        playerService.seekTo((snapshot.positionMs + deltaMs).coerceIn(0L, ceiling))
-    }
+    fun seekBy(deltaMs: Long) = playerService.seekBy(deltaMs)
+    fun reopenWebBridge() = playerService.reopenWebBridge()
     fun skipNext() = playerService.skipNext()
     fun skipPrevious() = playerService.skipPrevious()
     fun setShuffle(enabled: Boolean) = playerService.setShuffle(enabled)

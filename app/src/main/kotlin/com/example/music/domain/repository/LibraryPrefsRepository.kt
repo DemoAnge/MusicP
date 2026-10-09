@@ -10,4 +10,6 @@ interface LibraryPrefsRepository {
     suspend fun removeIds(ids: Set<String>)
     fun observeLockScreenPromptDismissed(): Flow<Boolean>
     suspend fun setLockScreenPromptDismissed(dismissed: Boolean)
+    fun observePreferBrave(): Flow<Boolean>
+    suspend fun setPreferBrave(enabled: Boolean)
 }

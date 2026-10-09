@@ -4,10 +4,12 @@ import com.example.music.data.library.LibraryPrefsRepositoryImpl
 import com.example.music.data.local_music.LocalMusicRepositoryImpl
 import com.example.music.data.lyrics.LyricsRepositoryImpl
 import com.example.music.data.player.PlaybackSessionRepositoryImpl
+import com.example.music.data.youtube.YouTubeSearchRepositoryImpl
 import com.example.music.domain.repository.LibraryPrefsRepository
 import com.example.music.domain.repository.LocalMusicRepository
 import com.example.music.domain.repository.LyricsRepository
 import com.example.music.domain.repository.PlaybackSessionRepository
+import com.example.music.domain.repository.YouTubeSearchRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -34,4 +36,10 @@ abstract class RepositoryModule {
     abstract fun bindPlaybackSessionRepository(
         impl: PlaybackSessionRepositoryImpl,
     ): PlaybackSessionRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindYouTubeSearchRepository(
+        impl: YouTubeSearchRepositoryImpl,
+    ): YouTubeSearchRepository
 }

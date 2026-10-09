@@ -10,4 +10,6 @@ data class PlayerState(
     val queue: List<Track> = emptyList(),
     val queueIndex: Int = -1,
     val errorMessage: String? = null,
+    val webBridgeConnected: Boolean = false,
+    val webNeedsGesture: Boolean = false,
 )

@@ -12,4 +12,6 @@ class ObserveLibraryPrefsUseCase @Inject constructor(
     fun lockScreenPromptDismissed() = prefs.observeLockScreenPromptDismissed()
     suspend fun setLockScreenPromptDismissed(dismissed: Boolean) =
         prefs.setLockScreenPromptDismissed(dismissed)
+    fun preferBrave() = prefs.observePreferBrave()
+    suspend fun setPreferBrave(enabled: Boolean) = prefs.setPreferBrave(enabled)
 }
