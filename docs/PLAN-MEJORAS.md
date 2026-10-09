@@ -217,7 +217,7 @@ Cada fase es entregable, testeable y no depende de las posteriores. Criterio de 
 
 **Aceptación:** “Bohemian Rhapsody” encuentra el archivo si existe; si no, lanza YouTube en Brave sin salir del modelo mental de la app.
 
-### Fase 5 — Biblioteca y organización
+### Fase 5 — Biblioteca y organización ✅
 **Objetivo:** dejar de ser solo una lista con chips.
 
 - Home con filas Recientes, Queridas, Álbumes (grid).
@@ -226,6 +226,8 @@ Cada fase es entregable, testeable y no depende de las posteriores. Criterio de 
 - Menú contextual: agregar a cola, a playlist, ir al álbum, info (ruta, tamaño, formato), buscar en YouTube.
 - Pull-to-refresh además del ContentObserver.
 - Ajustes: Brave, ignore folders, tema, “reabrir puente”, notificaciones.
+
+**Hecho.** Inicio con recientes, queridas y grid de álbumes. Álbum/artista/lista abren con carátula, Play y aleatorio. Listas de usuario en SharedPreferences JSON. Menú de tres puntos (cola, lista, álbum, info, YouTube). Pull-to-refresh. Carpetas ocultas desde la carpeta y Ajustes.
 
 **Aceptación:** un álbum se abre como disco, no como otra lista idéntica.
 

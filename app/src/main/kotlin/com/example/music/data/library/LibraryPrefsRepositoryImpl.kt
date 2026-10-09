@@ -1,8 +1,12 @@
 package com.example.music.data.library
 
 import android.content.Context
+import com.example.music.domain.model.UserPlaylist
 import com.example.music.domain.repository.LibraryPrefsRepository
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -18,6 +22,7 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val mutex = Mutex()
+    private val gson = Gson()
     private val favorites = MutableStateFlow(readFavorites())
     private val recents = MutableStateFlow(readRecents())
     private val lockScreenPromptDismissed = MutableStateFlow(
@@ -27,6 +32,8 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         prefs.getBoolean(KEY_PREFER_BRAVE, true),
     )
     private val searchHistory = MutableStateFlow(readSearchHistory())
+    private val playlists = MutableStateFlow(readPlaylists())
+    private val ignoredFolders = MutableStateFlow(readIgnoredFolders())
 
     override fun observeFavoriteIds(): Flow<Set<String>> = favorites.asStateFlow()
 
@@ -103,12 +110,81 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         mutex.withLock {
             val nextFav = favorites.value.filterNot { it in ids }.toSet()
             val nextRecents = recents.value.filterNot { it in ids }
+            val nextPlaylists = playlists.value.map { playlist ->
+                playlist.copy(trackIds = playlist.trackIds.filterNot { it in ids })
+            }
             favorites.value = nextFav
             recents.value = nextRecents
+            playlists.value = nextPlaylists
             prefs.edit()
                 .putStringSet(KEY_FAVORITES, HashSet(nextFav))
                 .putString(KEY_RECENTS, nextRecents.joinToString("\n"))
+                .putString(KEY_PLAYLISTS, gson.toJson(nextPlaylists))
                 .apply()
+        }
+    }
+
+    override fun observePlaylists(): Flow<List<UserPlaylist>> = playlists.asStateFlow()
+
+    override suspend fun createPlaylist(name: String): UserPlaylist? {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return null
+        return mutex.withLock {
+            val created = UserPlaylist(
+                id = UUID.randomUUID().toString(),
+                name = trimmed,
+                createdAtEpochSec = System.currentTimeMillis() / 1000L,
+            )
+            val next = playlists.value + created
+            playlists.value = next
+            prefs.edit().putString(KEY_PLAYLISTS, gson.toJson(next)).apply()
+            created
+        }
+    }
+
+    override suspend fun deletePlaylist(id: String) {
+        if (id.isBlank()) return
+        mutex.withLock {
+            val next = playlists.value.filterNot { it.id == id }
+            playlists.value = next
+            prefs.edit().putString(KEY_PLAYLISTS, gson.toJson(next)).apply()
+        }
+    }
+
+    override suspend fun addToPlaylist(playlistId: String, trackId: String) {
+        if (playlistId.isBlank() || trackId.isBlank()) return
+        mutex.withLock {
+            val next = playlists.value.map { playlist ->
+                if (playlist.id != playlistId || trackId in playlist.trackIds) playlist
+                else playlist.copy(trackIds = playlist.trackIds + trackId)
+            }
+            playlists.value = next
+            prefs.edit().putString(KEY_PLAYLISTS, gson.toJson(next)).apply()
+        }
+    }
+
+    override suspend fun removeFromPlaylist(playlistId: String, trackId: String) {
+        if (playlistId.isBlank() || trackId.isBlank()) return
+        mutex.withLock {
+            val next = playlists.value.map { playlist ->
+                if (playlist.id != playlistId) playlist
+                else playlist.copy(trackIds = playlist.trackIds.filterNot { it == trackId })
+            }
+            playlists.value = next
+            prefs.edit().putString(KEY_PLAYLISTS, gson.toJson(next)).apply()
+        }
+    }
+
+    override fun observeIgnoredFolders(): Flow<Set<String>> = ignoredFolders.asStateFlow()
+
+    override suspend fun setFolderIgnored(folderPath: String, ignored: Boolean) {
+        val path = folderPath.trim()
+        if (path.isEmpty()) return
+        mutex.withLock {
+            val next = ignoredFolders.value.toMutableSet()
+            if (ignored) next.add(path) else next.remove(path)
+            ignoredFolders.value = next
+            prefs.edit().putStringSet(KEY_IGNORED_FOLDERS, HashSet(next)).apply()
         }
     }
 
@@ -126,6 +202,16 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
             ?.filter { it.isNotEmpty() }
             .orEmpty()
 
+    private fun readPlaylists(): List<UserPlaylist> {
+        val json = prefs.getString(KEY_PLAYLISTS, "").orEmpty()
+        if (json.isBlank()) return emptyList()
+        val type = object : TypeToken<List<UserPlaylist>>() {}.type
+        return runCatching { gson.fromJson<List<UserPlaylist>>(json, type) }.getOrNull().orEmpty()
+    }
+
+    private fun readIgnoredFolders(): Set<String> =
+        prefs.getStringSet(KEY_IGNORED_FOLDERS, emptySet())?.toSet().orEmpty()
+
     private companion object {
         const val PREFS_NAME = "library_prefs"
         const val KEY_FAVORITES = "favorite_ids"
@@ -133,6 +219,8 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         const val KEY_LOCK_SCREEN_PROMPT = "lock_screen_prompt_dismissed"
         const val KEY_PREFER_BRAVE = "prefer_brave"
         const val KEY_SEARCH_HISTORY = "search_history"
+        const val KEY_PLAYLISTS = "user_playlists_json"
+        const val KEY_IGNORED_FOLDERS = "ignored_folders"
         const val MAX_RECENTS = 80
         const val MAX_SEARCH_HISTORY = 12
     }

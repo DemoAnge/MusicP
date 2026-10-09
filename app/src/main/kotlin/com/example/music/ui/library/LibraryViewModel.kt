@@ -11,12 +11,14 @@ import com.example.music.domain.model.LibraryUiState
 import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.SortMode
 import com.example.music.domain.model.Track
+import com.example.music.domain.model.UserPlaylist
 import com.example.music.domain.usecase.ControlPlaybackUseCase
 import com.example.music.domain.usecase.DeleteLocalTracksUseCase
 import com.example.music.domain.usecase.GetLocalTracksUseCase
 import com.example.music.domain.usecase.ObserveLibraryPrefsUseCase
 import com.example.music.domain.usecase.ObservePlayerStateUseCase
 import com.example.music.domain.usecase.PlayTrackUseCase
+import com.example.music.domain.usecase.SearchYouTubeUseCase
 import com.example.music.domain.usecase.ToggleFavoriteUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -42,15 +44,18 @@ class LibraryViewModel @Inject constructor(
     private val controls: ControlPlaybackUseCase,
     private val toggleFavorite: ToggleFavoriteUseCase,
     private val deleteTracks: DeleteLocalTracksUseCase,
+    private val searchYouTube: SearchYouTubeUseCase,
 ) : ViewModel() {
 
-    private val browseMode = MutableStateFlow(BrowseMode.SONGS)
+    private val browseMode = MutableStateFlow(BrowseMode.HOME)
     private val sortMode = MutableStateFlow(SortMode.TITLE)
     private val selectedGroupKey = MutableStateFlow<String?>(null)
     private val selecting = MutableStateFlow(false)
     private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing
 
     private val _events = MutableSharedFlow<LibraryEvent>(extraBufferCapacity = 1)
     val events: SharedFlow<LibraryEvent> = _events.asSharedFlow()
@@ -75,36 +80,62 @@ class LibraryViewModel @Inject constructor(
         val groupKey: String?,
     )
 
+    private data class PrefsSnap(
+        val favorites: Set<String>,
+        val recents: List<String>,
+        val playlists: List<UserPlaylist>,
+        val ignoredFolders: Set<String>,
+    )
+
     private val filters = combine(browseMode, sortMode, selectedGroupKey) { browse, sort, group ->
         Filters(browse, sort, group)
     }
 
     private val selection = combine(selecting, selectedIds) { on, ids -> on to ids }
 
-    val uiState: StateFlow<LibraryUiState> = combine(
-        allTracks,
+    private val prefsSnap = combine(
         observePrefs.favorites(),
         observePrefs.recents(),
+        observePrefs.playlists(),
+        observePrefs.ignoredFolders(),
+    ) { favorites, recents, playlists, ignored ->
+        PrefsSnap(favorites, recents, playlists, ignored)
+    }
+
+    val uiState: StateFlow<LibraryUiState> = combine(
+        allTracks,
+        prefsSnap,
         filters,
         selection,
-    ) { tracks, favorites, recents, filter, sel ->
+        _refreshing,
+    ) { tracks, prefs, filter, sel, refreshing ->
         runCatching {
-            buildState(tracks, favorites, recents, filter).copy(
+            buildState(tracks, prefs, filter).copy(
                 selecting = sel.first,
                 selectedIds = sel.second,
+                refreshing = refreshing,
             )
         }.getOrDefault(
-            LibraryUiState(favoriteIds = favorites, selecting = sel.first, selectedIds = sel.second),
+            LibraryUiState(
+                favoriteIds = prefs.favorites,
+                playlists = prefs.playlists,
+                ignoredFolders = prefs.ignoredFolders,
+                selecting = sel.first,
+                selectedIds = sel.second,
+                refreshing = refreshing,
+            ),
         )
     }.flowOn(Dispatchers.Default).stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
-        LibraryUiState(),
+        LibraryUiState(isHome = true),
     )
 
     fun loadTracks() {
         viewModelScope.launch {
+            _refreshing.value = true
             runCatching { getLocalTracks.refresh() }
+            _refreshing.value = false
         }
     }
 
@@ -123,6 +154,24 @@ class LibraryViewModel @Inject constructor(
         selectedGroupKey.value = key
     }
 
+    fun openAlbum(track: Track) {
+        browseMode.value = BrowseMode.ALBUMS
+        selectedGroupKey.value = albumKey(track)
+        exitSelection()
+    }
+
+    fun openAlbumGroup(group: LibraryGroup) {
+        browseMode.value = BrowseMode.ALBUMS
+        selectedGroupKey.value = group.key
+        exitSelection()
+    }
+
+    fun openArtist(track: Track) {
+        browseMode.value = BrowseMode.ARTISTS
+        selectedGroupKey.value = track.artist
+        exitSelection()
+    }
+
     fun closeGroup() {
         selectedGroupKey.value = null
         if (selecting.value) exitSelection()
@@ -133,7 +182,7 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun play(track: Track) {
-        val queue = uiState.value.visibleTracks.ifEmpty { allTracks.value.filter { !it.isVideo } }
+        val queue = uiState.value.visibleTracks.ifEmpty { playableTracks() }
         viewModelScope.launch { runCatching { playTrack(track, queue) } }
     }
 
@@ -143,17 +192,92 @@ class LibraryViewModel @Inject constructor(
         _notice.value = "Se reproducirá a continuación"
     }
 
+    fun addToQueue(track: Track) {
+        if (track.isVideo) return
+        controls.addToQueue(track)
+        _notice.value = "Se agregó al final de la cola"
+    }
+
     fun playAll() {
-        val list = uiState.value.visibleTracks.ifEmpty { allTracks.value.filter { !it.isVideo } }
+        val list = uiState.value.visibleTracks.ifEmpty { playableTracks() }
         if (list.isEmpty()) return
         viewModelScope.launch { runCatching { playTrack(list.first(), list) } }
     }
 
     fun shuffleAll() {
-        val list = uiState.value.visibleTracks.ifEmpty { allTracks.value.filter { !it.isVideo } }
+        val list = uiState.value.visibleTracks.ifEmpty { playableTracks() }
         if (list.isEmpty()) return
         runCatching { controls.setShuffle(true) }
         viewModelScope.launch { runCatching { playTrack(list.random(), list) } }
+    }
+
+    fun playGroup(group: LibraryGroup) {
+        val list = group.tracks.filter { !it.isVideo }
+        val track = list.firstOrNull() ?: return
+        viewModelScope.launch { runCatching { playTrack(track, list) } }
+    }
+
+    fun searchOnYouTube(track: Track) {
+        val query = listOf(track.title, track.artist).filter { it.isNotBlank() }.joinToString(" ")
+        if (query.isBlank()) return
+        viewModelScope.launch {
+            val found = runCatching { searchYouTube(query) }.getOrDefault(emptyList())
+            val queue = found.ifEmpty { listOf(searchYouTube.placeholder(query)) }
+            runCatching { playTrack(queue.first(), queue) }
+            _notice.value = "Buscando en YouTube · Brave"
+        }
+    }
+
+    fun createPlaylist(name: String, addTrackId: String? = null) {
+        viewModelScope.launch {
+            val created = runCatching { observePrefs.createPlaylist(name) }.getOrNull()
+            if (created == null) {
+                _notice.value = "Ponle un nombre a la lista"
+                return@launch
+            }
+            if (!addTrackId.isNullOrBlank()) {
+                runCatching { observePrefs.addToPlaylist(created.id, addTrackId) }
+            }
+            _notice.value = "Lista “${created.name}” creada"
+        }
+    }
+
+    fun deleteCurrentPlaylist() {
+        val id = uiState.value.selectedPlaylistId ?: return
+        viewModelScope.launch {
+            runCatching { observePrefs.deletePlaylist(id) }
+            closeGroup()
+            _notice.value = "Lista eliminada"
+        }
+    }
+
+    fun addToPlaylist(playlistId: String, trackId: String) {
+        viewModelScope.launch {
+            runCatching { observePrefs.addToPlaylist(playlistId, trackId) }
+            _notice.value = "Agregada a la lista"
+        }
+    }
+
+    fun removeFromCurrentPlaylist(trackId: String) {
+        val id = uiState.value.selectedPlaylistId ?: return
+        viewModelScope.launch {
+            runCatching { observePrefs.removeFromPlaylist(id, trackId) }
+            _notice.value = "Quitada de la lista"
+        }
+    }
+
+    fun ignoreCurrentFolder() {
+        val path = uiState.value.visibleTracks.firstOrNull()?.folderPath?.trim().orEmpty()
+        if (path.isEmpty()) return
+        viewModelScope.launch {
+            runCatching { observePrefs.setFolderIgnored(path, true) }
+            closeGroup()
+            _notice.value = "Carpeta oculta. Puedes mostrarla otra vez en Ajustes."
+        }
+    }
+
+    fun unignoreFolder(path: String) {
+        viewModelScope.launch { runCatching { observePrefs.setFolderIgnored(path, false) } }
     }
 
     fun enterSelection() {
@@ -257,42 +381,77 @@ class LibraryViewModel @Inject constructor(
         else "$count archivos eliminados del dispositivo"
     }
 
+    private fun playableTracks(): List<Track> {
+        val ignored = uiState.value.ignoredFolders
+        return allTracks.value.filter { !it.isVideo && it.folderPath !in ignored }
+    }
+
     private fun buildState(
         tracks: List<Track>,
-        favorites: Set<String>,
-        recents: List<String>,
+        prefs: PrefsSnap,
         filter: Filters,
     ): LibraryUiState {
-        val songs = sortTracks(tracks.filter { !it.isVideo }, filter.sort)
+        val songs = sortTracks(
+            tracks.filter { !it.isVideo && (it.folderPath.isBlank() || it.folderPath !in prefs.ignoredFolders) },
+            filter.sort,
+        )
+        val albumGroups = albumGroups(songs)
+        val base = LibraryUiState(
+            browse = filter.browse,
+            sort = filter.sort,
+            favoriteIds = prefs.favorites,
+            playlists = prefs.playlists,
+            ignoredFolders = prefs.ignoredFolders,
+        )
         return when (filter.browse) {
-            BrowseMode.SONGS -> LibraryUiState(
-                browse = filter.browse,
-                sort = filter.sort,
+            BrowseMode.HOME -> base.copy(
+                isHome = true,
+                homeRecents = recentsList(songs, prefs.recents).take(16),
+                homeLiked = songs.filter { it.id in prefs.favorites }.take(16),
+                homeAlbums = albumGroups.take(18),
+                countLabel = countLabel(songs),
+            )
+            BrowseMode.SONGS -> base.copy(
                 visibleTracks = songs,
-                favoriteIds = favorites,
                 countLabel = countLabel(songs),
             )
             BrowseMode.FAVORITES -> {
-                val liked = sortTracks(tracks.filter { it.id in favorites && !it.isVideo }, filter.sort)
-                LibraryUiState(
-                    browse = filter.browse,
-                    sort = filter.sort,
+                val liked = sortTracks(songs.filter { it.id in prefs.favorites }, filter.sort)
+                base.copy(
                     visibleTracks = liked,
-                    favoriteIds = favorites,
                     countLabel = if (liked.isEmpty()) "Sin canciones marcadas" else countLabel(liked),
                 )
             }
             BrowseMode.RECENTS -> {
-                val byId = tracks.filter { !it.isVideo }.associateBy { it.id }
-                val played = recents.mapNotNull { byId[it] }
+                val played = recentsList(songs, prefs.recents)
                 val visible = if (filter.sort == SortMode.TITLE) played else sortTracks(played, filter.sort)
-                LibraryUiState(
-                    browse = filter.browse,
-                    sort = filter.sort,
+                base.copy(
                     visibleTracks = visible,
-                    favoriteIds = favorites,
                     countLabel = if (visible.isEmpty()) "Aún no has reproducido nada" else countLabel(visible),
                 )
+            }
+            BrowseMode.PLAYLISTS -> {
+                val groups = prefs.playlists.map { playlist ->
+                    val byId = songs.associateBy { it.id }
+                    val list = playlist.trackIds.mapNotNull { byId[it] }
+                    LibraryGroup(
+                        key = playlistKey(playlist.id),
+                        title = playlist.name,
+                        subtitle = if (list.isEmpty()) "Vacía" else countLabel(list),
+                        artworkUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
+                        tracks = list,
+                    )
+                }
+                val selected = filter.groupKey?.let { key -> groups.firstOrNull { it.key == key } }
+                if (selected == null) {
+                    base.copy(
+                        showingGroups = true,
+                        groups = groups,
+                        countLabel = if (groups.isEmpty()) "Crea una lista" else "${groups.size} listas",
+                    )
+                } else {
+                    detailState(base, selected, playlistId = selected.key.removePrefix(PLAYLIST_PREFIX))
+                }
             }
             BrowseMode.FOLDERS,
             BrowseMode.ARTISTS,
@@ -317,24 +476,13 @@ class LibraryViewModel @Inject constructor(
                             tracks = list,
                         )
                     }
-                    else -> groupTracks(songs, { "${it.artist}\u0000${it.album}" }) { first, list ->
-                        LibraryGroup(
-                            key = "${first.artist}\u0000${first.album}",
-                            title = first.album,
-                            subtitle = "${first.artist} · ${list.size}",
-                            artworkUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
-                            tracks = list,
-                        )
-                    }
+                    else -> albumGroups
                 }.distinctBy { it.key }.sortedBy { it.title.lowercase() }
                 val selected = filter.groupKey?.let { key -> groups.firstOrNull { it.key == key } }
                 if (selected == null) {
-                    LibraryUiState(
-                        browse = filter.browse,
-                        sort = filter.sort,
+                    base.copy(
                         showingGroups = true,
                         groups = groups,
-                        favoriteIds = favorites,
                         countLabel = when (filter.browse) {
                             BrowseMode.FOLDERS -> "${groups.size} carpetas"
                             BrowseMode.ARTISTS -> "${groups.size} artistas"
@@ -342,19 +490,44 @@ class LibraryViewModel @Inject constructor(
                         },
                     )
                 } else {
-                    val visible = selected.tracks.distinctBy { it.mediaUri.ifBlank { it.id } }
-                    LibraryUiState(
-                        browse = filter.browse,
-                        sort = filter.sort,
-                        selectedGroupKey = selected.key,
-                        selectedGroupTitle = selected.title,
-                        visibleTracks = visible,
-                        favoriteIds = favorites,
-                        countLabel = countLabel(visible),
-                    )
+                    detailState(base, selected)
                 }
             }
         }
+    }
+
+    private fun detailState(
+        base: LibraryUiState,
+        selected: LibraryGroup,
+        playlistId: String? = null,
+    ): LibraryUiState {
+        val visible = selected.tracks.distinctBy { it.mediaUri.ifBlank { it.id } }
+        return base.copy(
+            selectedGroupKey = selected.key,
+            selectedGroupTitle = selected.title,
+            selectedGroupSubtitle = selected.subtitle,
+            selectedGroupArtwork = selected.artworkUri,
+            selectedPlaylistId = playlistId,
+            visibleTracks = visible,
+            countLabel = countLabel(visible),
+        )
+    }
+
+    private fun recentsList(songs: List<Track>, recents: List<String>): List<Track> {
+        val byId = songs.associateBy { it.id }
+        return recents.mapNotNull { byId[it] }
+    }
+
+    private fun albumGroups(songs: List<Track>): List<LibraryGroup> {
+        return groupTracks(songs, { albumKey(it) }) { first, list ->
+            LibraryGroup(
+                key = albumKey(first),
+                title = first.album.ifBlank { "Sin álbum" },
+                subtitle = "${first.artist} · ${list.size}",
+                artworkUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
+                tracks = list,
+            )
+        }.distinctBy { it.key }.sortedBy { it.title.lowercase() }
     }
 
     private fun groupTracks(
@@ -376,6 +549,13 @@ class LibraryViewModel @Inject constructor(
     }
 
     private fun countLabel(tracks: List<Track>): String = "${tracks.size} canciones"
+
+    private fun albumKey(track: Track): String = "${track.artist}\u0000${track.album}"
+
+    private companion object {
+        const val PLAYLIST_PREFIX = "pl:"
+        fun playlistKey(id: String) = "$PLAYLIST_PREFIX$id"
+    }
 }
 
 sealed interface LibraryEvent {

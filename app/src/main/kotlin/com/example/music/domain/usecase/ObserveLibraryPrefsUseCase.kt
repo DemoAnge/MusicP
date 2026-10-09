@@ -18,4 +18,14 @@ class ObserveLibraryPrefsUseCase @Inject constructor(
     suspend fun recordSearch(query: String) = prefs.recordSearch(query)
     suspend fun removeSearchQuery(query: String) = prefs.removeSearchQuery(query)
     suspend fun clearSearchHistory() = prefs.clearSearchHistory()
+    fun playlists() = prefs.observePlaylists()
+    suspend fun createPlaylist(name: String) = prefs.createPlaylist(name)
+    suspend fun deletePlaylist(id: String) = prefs.deletePlaylist(id)
+    suspend fun addToPlaylist(playlistId: String, trackId: String) =
+        prefs.addToPlaylist(playlistId, trackId)
+    suspend fun removeFromPlaylist(playlistId: String, trackId: String) =
+        prefs.removeFromPlaylist(playlistId, trackId)
+    fun ignoredFolders() = prefs.observeIgnoredFolders()
+    suspend fun setFolderIgnored(folderPath: String, ignored: Boolean) =
+        prefs.setFolderIgnored(folderPath, ignored)
 }

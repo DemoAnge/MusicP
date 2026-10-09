@@ -22,6 +22,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -41,6 +42,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     val preferBrave by viewModel.preferBrave.collectAsStateWithLifecycle()
+    val ignoredFolders by viewModel.ignoredFolders.collectAsStateWithLifecycle()
     BackHandler(onBack = onBack)
 
     Column(
@@ -104,6 +106,35 @@ fun SettingsScreen(
         Spacer(Modifier.height(16.dp))
         OutlinedButton(onClick = viewModel::reopenBridge) {
             Text("Reabrir puente en el navegador")
+        }
+        Spacer(Modifier.height(24.dp))
+        Text("Biblioteca", style = MaterialTheme.typography.titleMedium, color = OnBackground)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Oculta una carpeta desde su pantalla (icono de ojo tachado). Aquí las vuelves a mostrar.",
+            color = ArtistGray,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (ignoredFolders.isEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("Ninguna carpeta oculta.", color = ArtistGray, style = MaterialTheme.typography.bodySmall)
+        } else {
+            ignoredFolders.sorted().forEach { path ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        path,
+                        color = OnBackground,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { viewModel.unignoreFolder(path) }) {
+                        Text("Mostrar", color = Accent)
+                    }
+                }
+            }
         }
         Spacer(Modifier.height(24.dp))
         Text("Búsqueda de YouTube", style = MaterialTheme.typography.titleMedium, color = OnBackground)

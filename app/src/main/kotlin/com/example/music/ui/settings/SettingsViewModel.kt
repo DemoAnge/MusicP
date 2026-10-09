@@ -33,6 +33,16 @@ class SettingsViewModel @Inject constructor(
         true,
     )
 
+    val ignoredFolders: StateFlow<Set<String>> = prefs.ignoredFolders().stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        emptySet(),
+    )
+
+    fun unignoreFolder(path: String) {
+        viewModelScope.launch { runCatching { prefs.setFolderIgnored(path, false) } }
+    }
+
     fun setPreferBrave(enabled: Boolean) {
         viewModelScope.launch { runCatching { prefs.setPreferBrave(enabled) } }
     }
