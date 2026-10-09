@@ -5,6 +5,7 @@ import com.example.music.domain.model.PlaybackSession
 import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.RepeatMode
+import com.example.music.domain.model.SleepOption
 import com.example.music.domain.model.Track
 import com.example.music.domain.repository.LibraryPrefsRepository
 import com.example.music.domain.repository.PlaybackSessionRepository
@@ -15,6 +16,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,6 +57,7 @@ class PlayerCoordinator @Inject constructor(
     private var consecutiveFailures = 0
     private var lastRecordedId: String? = null
     @Volatile private var persistEnabled = false
+    private var sleepJob: Job? = null
 
     init {
         libraryPrefs.observePreferBrave()
@@ -345,6 +348,7 @@ class PlayerCoordinator @Inject constructor(
                 _state.value = PlayerState(
                     isShuffleEnabled = snapshot.isShuffleEnabled,
                     repeatMode = snapshot.repeatMode,
+                    playbackSpeed = snapshot.playbackSpeed,
                 )
                 scope.launch { sessionRepository.clear() }
                 return@run
@@ -365,7 +369,40 @@ class PlayerCoordinator @Inject constructor(
         CrashGuard.run { webPlayer.reopenBridge() }
     }
 
+    override fun setPlaybackSpeed(speed: Float) {
+        val clamped = speed.coerceIn(0.8f, 1.5f)
+        _state.update { it.copy(playbackSpeed = clamped) }
+        if (!isWeb(_state.value.currentTrack)) {
+            CrashGuard.run { localPlayer.setSpeed(clamped) }
+        }
+    }
+
+    override fun setSleepTimer(option: SleepOption) {
+        sleepJob?.cancel()
+        sleepJob = null
+        when (option) {
+            SleepOption.OFF -> {
+                _state.update { it.copy(sleepEndsAtEpochMs = 0L, sleepAtEndOfTrack = false) }
+            }
+            SleepOption.END_OF_TRACK -> {
+                _state.update { it.copy(sleepEndsAtEpochMs = 0L, sleepAtEndOfTrack = true) }
+            }
+            else -> {
+                val delayMs = option.minutes * 60_000L
+                val endsAt = System.currentTimeMillis() + delayMs
+                _state.update { it.copy(sleepEndsAtEpochMs = endsAt, sleepAtEndOfTrack = false) }
+                sleepJob = scope.launch {
+                    delay(delayMs)
+                    CrashGuard.run { pause() }
+                    _state.update { it.copy(sleepEndsAtEpochMs = 0L, sleepAtEndOfTrack = false) }
+                }
+            }
+        }
+    }
+
     override fun release() {
+        sleepJob?.cancel()
+        sleepJob = null
         persist()
     }
 
@@ -410,6 +447,7 @@ class PlayerCoordinator @Inject constructor(
             } else {
                 CrashGuard.run { webPlayer.pause() }
                 localPlayer.setRepeatMode(_state.value.repeatMode)
+                localPlayer.setSpeed(_state.value.playbackSpeed)
                 if (isAllLocal(queue)) {
                     localPlayer.setQueue(queue, safeIndex, positionMs, playWhenReady)
                 } else {
@@ -440,6 +478,13 @@ class PlayerCoordinator @Inject constructor(
 
     private fun onEngineEnded() {
         val snapshot = _state.value
+        if (snapshot.sleepAtEndOfTrack) {
+            pause()
+            sleepJob?.cancel()
+            sleepJob = null
+            _state.update { it.copy(sleepEndsAtEpochMs = 0L, sleepAtEndOfTrack = false) }
+            return
+        }
         when (snapshot.repeatMode) {
             RepeatMode.ONE -> {
                 seekTo(0L)

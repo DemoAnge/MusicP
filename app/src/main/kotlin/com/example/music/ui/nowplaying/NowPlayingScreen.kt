@@ -20,6 +20,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Forward10
@@ -35,6 +37,9 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.Lyrics
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,15 +74,24 @@ import com.example.music.core.theme.SeekTrack
 import com.example.music.core.theme.Accent
 import com.example.music.domain.model.LyricsLine
 import com.example.music.domain.model.PlaybackSource
+import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.RepeatMode
+import com.example.music.domain.model.SleepOption
 import com.example.music.ui.components.AlbumArt
 import com.example.music.ui.components.ThinSeekBar
 import com.example.music.ui.components.formatMs
+import com.example.music.ui.driving.sleepRemainingLabel
+import com.example.music.ui.voice.VoiceMicButton
+import com.example.music.ui.voice.rememberVoiceCapture
+import kotlin.math.abs
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 fun NowPlayingScreen(
     viewModel: NowPlayingViewModel = hiltViewModel(),
     onClose: () -> Unit = {},
+    onOpenDriving: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
@@ -85,8 +99,14 @@ fun NowPlayingScreen(
     val palette by viewModel.palette.collectAsStateWithLifecycle()
     val showLyrics by viewModel.showLyrics.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
+    val voiceStatus by viewModel.voiceStatus.collectAsStateWithLifecycle()
     var showQueue by remember { mutableStateOf(false) }
+    var showSleep by remember { mutableStateOf(false) }
     val track = playerState.currentTrack
+    val voice = rememberVoiceCapture(
+        onTranscript = viewModel::onSpoken,
+        onStatus = viewModel::setVoiceStatus,
+    )
 
     Box(
         modifier = modifier
@@ -353,7 +373,28 @@ fun NowPlayingScreen(
                     onClick = viewModel::cycleRepeat,
                     tint = if (playerState.repeatMode == RepeatMode.OFF) OnBackground else Accent,
                 )
+                TransportIcon(
+                    imageVector = Icons.Filled.Bedtime,
+                    contentDescription = "Temporizador de sueño",
+                    onClick = { showSleep = true },
+                    tint = if (playerState.sleepEndsAtEpochMs > 0L || playerState.sleepAtEndOfTrack) {
+                        Accent
+                    } else {
+                        OnBackground
+                    },
+                )
+                TransportIcon(
+                    imageVector = Icons.Filled.DirectionsCar,
+                    contentDescription = "Modo conducción",
+                    onClick = onOpenDriving,
+                )
+                VoiceMicButton(capture = voice)
             }
+            HandsFreeExtras(
+                playerState = playerState,
+                voiceStatus = voiceStatus,
+                onSpeed = viewModel::setPlaybackSpeed,
+            )
             Spacer(Modifier.height(8.dp))
         }
         }
@@ -366,7 +407,111 @@ fun NowPlayingScreen(
                 onMove = viewModel::moveInQueue,
             )
         }
+        if (showSleep) {
+            SleepTimerDialog(
+                onDismiss = { showSleep = false },
+                onPick = { option ->
+                    viewModel.setSleepTimer(option)
+                    showSleep = false
+                },
+            )
+        }
     }
+}
+
+@Composable
+private fun HandsFreeExtras(
+    playerState: PlayerState,
+    voiceStatus: String?,
+    onSpeed: (Float) -> Unit,
+) {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(playerState.sleepEndsAtEpochMs) {
+        val ends = playerState.sleepEndsAtEpochMs
+        if (ends <= 0L) return@LaunchedEffect
+        while (isActive && System.currentTimeMillis() < ends) {
+            now = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    val sleepLabel = sleepRemainingLabel(
+        endsAt = playerState.sleepEndsAtEpochMs,
+        atEndOfTrack = playerState.sleepAtEndOfTrack,
+        now = now,
+    )
+    if (sleepLabel != null) {
+        Text(sleepLabel, color = Accent, style = MaterialTheme.typography.labelLarge)
+    }
+    if (!voiceStatus.isNullOrBlank()) {
+        Text(
+            voiceStatus,
+            color = Accent,
+            style = MaterialTheme.typography.bodySmall,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    val isLocal = playerState.currentTrack?.source == PlaybackSource.LOCAL
+    if (isLocal) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            listOf(0.8f, 1.0f, 1.25f, 1.5f).forEach { speed ->
+                val selected = abs(playerState.playbackSpeed - speed) < 0.01f
+                FilterChip(
+                    selected = selected,
+                    onClick = { onSpeed(speed) },
+                    label = { Text(speedLabel(speed)) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Accent,
+                        selectedLabelColor = Color.White,
+                        labelColor = OnBackground,
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SleepTimerDialog(
+    onDismiss: () -> Unit,
+    onPick: (SleepOption) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Apagar automáticamente") },
+        text = {
+            Column {
+                SleepOption.entries.forEach { option ->
+                    TextButton(onClick = { onPick(option) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(sleepOptionLabel(option), color = OnBackground)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cerrar", color = Accent) }
+        },
+    )
+}
+
+private fun speedLabel(speed: Float): String = when {
+    abs(speed - 1.0f) < 0.01f -> "1×"
+    abs(speed - 1.25f) < 0.01f -> "1.25×"
+    abs(speed - 0.8f) < 0.01f -> "0.8×"
+    else -> "1.5×"
+}
+
+private fun sleepOptionLabel(option: SleepOption): String = when (option) {
+    SleepOption.OFF -> "Apagar"
+    SleepOption.MINUTES_15 -> "15 minutos"
+    SleepOption.MINUTES_30 -> "30 minutos"
+    SleepOption.MINUTES_45 -> "45 minutos"
+    SleepOption.MINUTES_60 -> "60 minutos"
+    SleepOption.END_OF_TRACK -> "Fin de pista"
 }
 
 @Composable

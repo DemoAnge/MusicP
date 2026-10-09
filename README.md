@@ -6,6 +6,7 @@ Reproductor **manos libres** para Android (Kotlin + Jetpack Compose).
 - **Web:** si [Brave](https://play.google.com/store/apps/details?id=com.brave.browser) está instalado, la app abre un puente local (`127.0.0.1`) y reproduce YouTube con la IFrame Player API oficial. La app es el mando (play, pausa, rewind, skip). Sin Brave, hay CTA a Play Store y se usa el navegador predeterminado.
 - Búsqueda unificada: una caja agrupa canciones, artistas y álbumes locales, más YouTube en Brave. Historial de búsquedas recientes. Si pones `YOUTUBE_API_KEY` en `local.properties` (Data API v3, tuya), lista hasta 5 videos; si no hay clave, se abre Brave y pegas el enlace en el puente.
 - Letras sincronizadas (tags, `.lrc`, lrclib.net).
+- Modo conducción (tres botones grandes, pantalla encendida), temporizador de sueño, velocidad 0.8–1.5× en local, y voz (“pon X”, “atrás”, “siguiente”, “pausa”). Android Auto / AVRCP vía la sesión Media3.
 
 No es un clon de Spotify. No extrae audio del navegador ni usa APIs no oficiales. Deja la pestaña del puente abierta. En Brave Shields, permite YouTube en esa página si el embed no carga.
 

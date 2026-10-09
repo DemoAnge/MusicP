@@ -2,6 +2,7 @@ package com.example.music.player
 
 import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.RepeatMode
+import com.example.music.domain.model.SleepOption
 import com.example.music.domain.model.Track
 import kotlinx.coroutines.flow.StateFlow
 
@@ -25,5 +26,7 @@ interface IPlayerService {
     fun clearError()
     fun seekBy(deltaMs: Long)
     fun reopenWebBridge()
+    fun setPlaybackSpeed(speed: Float)
+    fun setSleepTimer(option: SleepOption)
     fun release()
 }

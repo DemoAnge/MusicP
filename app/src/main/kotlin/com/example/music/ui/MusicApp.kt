@@ -44,6 +44,7 @@ import com.example.music.ui.components.MiniPlayer
 import com.example.music.ui.library.LibraryScreen
 import com.example.music.ui.lockscreen.LockScreenAuthScreen
 import com.example.music.ui.lockscreen.LockScreenAuthViewModel
+import com.example.music.ui.driving.DrivingScreen
 import com.example.music.ui.nowplaying.NowPlayingScreen
 import com.example.music.ui.search.SearchScreen
 import com.example.music.ui.settings.SettingsScreen
@@ -53,6 +54,7 @@ private object Destinations {
     const val Search = "search"
     const val NowPlaying = "nowplaying"
     const val Settings = "settings"
+    const val Driving = "driving"
 }
 
 @Composable
@@ -66,6 +68,8 @@ fun MusicApp(
     val current = backStack?.destination
     val onNowPlaying = current?.route == Destinations.NowPlaying
     val onSettings = current?.route == Destinations.Settings
+    val onDriving = current?.route == Destinations.Driving
+    val hideChrome = onNowPlaying || onDriving
     val showLockPrompt by lockScreenAuthViewModel.showPrompt.collectAsStateWithLifecycle()
     val showLockBanner by lockScreenAuthViewModel.showBanner.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -96,7 +100,14 @@ fun MusicApp(
         }
     }
 
+    fun openDriving() {
+        navController.navigate(Destinations.Driving) {
+            launchSingleTop = true
+        }
+    }
+
     BackHandler(enabled = onNowPlaying) { closeNowPlaying() }
+    BackHandler(enabled = onDriving) { navController.popBackStack() }
 
     LaunchedEffect(playerState.errorMessage) {
         val message = playerState.errorMessage?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
@@ -109,7 +120,7 @@ fun MusicApp(
             containerColor = Background,
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
-                if (!onNowPlaying) {
+                if (!hideChrome) {
                     Column {
                         if (playerState.currentTrack != null) {
                             MiniPlayer(
@@ -171,10 +182,19 @@ fun MusicApp(
                 }
                 composable(Destinations.Search) { SearchScreen() }
                 composable(Destinations.NowPlaying) {
-                    NowPlayingScreen(onClose = { closeNowPlaying() })
+                    NowPlayingScreen(
+                        onClose = { closeNowPlaying() },
+                        onOpenDriving = { openDriving() },
+                    )
                 }
                 composable(Destinations.Settings) {
-                    SettingsScreen(onBack = { navController.popBackStack() })
+                    SettingsScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenDriving = { openDriving() },
+                    )
+                }
+                composable(Destinations.Driving) {
+                    DrivingScreen(onClose = { navController.popBackStack() })
                 }
             }
         }

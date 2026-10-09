@@ -1,6 +1,7 @@
 package com.example.music.domain.usecase
 
 import com.example.music.domain.model.RepeatMode
+import com.example.music.domain.model.SleepOption
 import com.example.music.domain.model.Track
 import com.example.music.player.IPlayerService
 import javax.inject.Inject
@@ -24,4 +25,6 @@ class ControlPlaybackUseCase @Inject constructor(
     fun playQueueIndex(index: Int) = playerService.playQueueIndex(index)
     fun removeFromQueue(trackIds: Set<String>) = playerService.removeFromQueue(trackIds)
     fun clearError() = playerService.clearError()
+    fun setPlaybackSpeed(speed: Float) = playerService.setPlaybackSpeed(speed)
+    fun setSleepTimer(option: SleepOption) = playerService.setSleepTimer(option)
 }

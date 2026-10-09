@@ -38,6 +38,7 @@ import com.example.music.core.theme.Surface
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onOpenDriving: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     modifier: Modifier = Modifier,
 ) {
@@ -106,6 +107,22 @@ fun SettingsScreen(
         Spacer(Modifier.height(16.dp))
         OutlinedButton(onClick = viewModel::reopenBridge) {
             Text("Reabrir puente en el navegador")
+        }
+        Spacer(Modifier.height(24.dp))
+        Text("Manos libres", style = MaterialTheme.typography.titleMedium, color = OnBackground)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Modo conducción: tres botones grandes, pantalla encendida, voz. " +
+                "Temporizador de sueño y velocidad 0.8–1.5× están en Ahora suena (solo local).",
+            color = ArtistGray,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = onOpenDriving,
+            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnBackground),
+        ) {
+            Text("Modo conducción")
         }
         Spacer(Modifier.height(24.dp))
         Text("Biblioteca", style = MaterialTheme.typography.titleMedium, color = OnBackground)

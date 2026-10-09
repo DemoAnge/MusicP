@@ -231,7 +231,7 @@ Cada fase es entregable, testeable y no depende de las posteriores. Criterio de 
 
 **Aceptación:** un álbum se abre como disco, no como otra lista idéntica.
 
-### Fase 6 — Manos libres avanzado
+### Fase 6 — Manos libres avanzado ✅
 **Objetivo:** conducir / cocina / Bluetooth.
 
 - Modo conducción: contrastes altos, 3 botones XXL, sin chips.
@@ -239,6 +239,8 @@ Cada fase es entregable, testeable y no depende de las posteriores. Criterio de 
 - Velocidad 0.8–1.5× en local (podcasts).
 - Voz (reconocedor on-device): “pon X”, “atrás”, “siguiente”, “pausa”. Misma tubería que Fase 4.
 - Android Auto / AVRCP: la cola de Media3 ya alimenta la sesión.
+
+**Hecho.** Pantalla de conducción (anterior / play / siguiente, micrófono, pantalla encendida). Temporizador y velocidad en Ahora suena; la velocidad no aplica a WEB. Voz on-device si el sistema la ofrece, si no el reconocedor normal. MediaPlaybackService exportado + `automotive_app_desc` para Auto/AVRCP.
 
 **Aceptación:** se usa la app sin mirar la lista, con auricular o volante.
 

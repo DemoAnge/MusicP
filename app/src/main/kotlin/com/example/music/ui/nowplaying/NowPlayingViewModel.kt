@@ -12,10 +12,12 @@ import com.example.music.core.theme.Background
 import com.example.music.core.theme.Accent
 import com.example.music.core.theme.Surface
 import com.example.music.domain.model.PlayerState
+import com.example.music.domain.model.SleepOption
 import com.example.music.domain.model.SyncedLyrics
 import com.example.music.domain.model.next
 import com.example.music.domain.usecase.ControlPlaybackUseCase
 import com.example.music.domain.usecase.GetSyncedLyricsUseCase
+import com.example.music.domain.usecase.HandleVoiceCommandUseCase
 import com.example.music.domain.usecase.ObserveLibraryPrefsUseCase
 import com.example.music.domain.usecase.ObservePlayerStateUseCase
 import com.example.music.domain.usecase.ToggleFavoriteUseCase
@@ -42,6 +44,7 @@ class NowPlayingViewModel @Inject constructor(
     private val getSyncedLyrics: GetSyncedLyricsUseCase,
     observePrefs: ObserveLibraryPrefsUseCase,
     private val toggleFavorite: ToggleFavoriteUseCase,
+    private val handleVoice: HandleVoiceCommandUseCase,
 ) : ViewModel() {
 
     val playerState: StateFlow<PlayerState> = observePlayerState().stateIn(
@@ -58,6 +61,9 @@ class NowPlayingViewModel @Inject constructor(
 
     private val _showLyrics = MutableStateFlow(false)
     val showLyrics: StateFlow<Boolean> = _showLyrics.asStateFlow()
+
+    private val _voiceStatus = MutableStateFlow<String?>(null)
+    val voiceStatus: StateFlow<String?> = _voiceStatus.asStateFlow()
 
     val isFavorite: StateFlow<Boolean> = combine(
         playerState.map { it.currentTrack?.id },
@@ -110,6 +116,19 @@ class NowPlayingViewModel @Inject constructor(
     fun removeFromQueue(trackId: String) = controls.removeFromQueue(setOf(trackId))
     fun moveInQueue(fromIndex: Int, toIndex: Int) = controls.moveInQueue(fromIndex, toIndex)
     fun reopenWebBridge() = controls.reopenWebBridge()
+    fun setPlaybackSpeed(speed: Float) = controls.setPlaybackSpeed(speed)
+    fun setSleepTimer(option: SleepOption) = controls.setSleepTimer(option)
+
+    fun onSpoken(text: String) {
+        viewModelScope.launch {
+            _voiceStatus.value = runCatching { handleVoice(text) }
+                .getOrElse { it.message ?: "No se pudo" }
+        }
+    }
+
+    fun setVoiceStatus(message: String) {
+        _voiceStatus.value = message
+    }
 
     private suspend fun extractPalette(artworkUri: String?): List<Color> = withContext(Dispatchers.IO) {
         if (artworkUri.isNullOrBlank()) return@withContext listOf(Background, Surface)

@@ -209,6 +209,13 @@ class LocalPlayerService @Inject constructor(
         }
     }
 
+    fun setSpeed(speed: Float) {
+        val clamped = speed.coerceIn(0.8f, 1.5f)
+        CrashGuard.run {
+            exoPlayer.playbackParameters = androidx.media3.common.PlaybackParameters(clamped)
+        }
+    }
+
     fun setRepeatMode(mode: RepeatMode) {
         CrashGuard.run {
             exoPlayer.repeatMode = when (mode) {

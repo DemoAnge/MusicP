@@ -12,4 +12,7 @@ data class PlayerState(
     val errorMessage: String? = null,
     val webBridgeConnected: Boolean = false,
     val webNeedsGesture: Boolean = false,
+    val playbackSpeed: Float = 1f,
+    val sleepEndsAtEpochMs: Long = 0L,
+    val sleepAtEndOfTrack: Boolean = false,
 )
