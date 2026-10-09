@@ -39,12 +39,22 @@ class SettingsViewModel @Inject constructor(
         emptySet(),
     )
 
+    val playbackSpeed: StateFlow<Float> = prefs.playbackSpeed().stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        1f,
+    )
+
     fun unignoreFolder(path: String) {
         viewModelScope.launch { runCatching { prefs.setFolderIgnored(path, false) } }
     }
 
     fun setPreferBrave(enabled: Boolean) {
         viewModelScope.launch { runCatching { prefs.setPreferBrave(enabled) } }
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        viewModelScope.launch { runCatching { prefs.setPlaybackSpeed(speed) } }
     }
 
     fun reopenBridge() = controls.reopenWebBridge()

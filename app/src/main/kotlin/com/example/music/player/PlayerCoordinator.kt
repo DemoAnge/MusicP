@@ -13,6 +13,7 @@ import com.example.music.domain.usecase.RecordRecentPlayUseCase
 import com.example.music.player.web.BrowserTunnelPlayer
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,10 +59,14 @@ class PlayerCoordinator @Inject constructor(
     private var lastRecordedId: String? = null
     @Volatile private var persistEnabled = false
     private var sleepJob: Job? = null
+    private val ready = CompletableDeferred<Unit>()
 
     init {
         libraryPrefs.observePreferBrave()
             .onEach { webPlayer.setPreferBrave(it) }
+            .launchIn(scope)
+        libraryPrefs.observePlaybackSpeed()
+            .onEach { setPlaybackSpeed(it) }
             .launchIn(scope)
 
         localPlayer.engineState
@@ -120,8 +125,9 @@ class PlayerCoordinator @Inject constructor(
         }.launchIn(scope)
 
         scope.launch {
-            restoreSession()
+            runCatching { restoreSession() }
             persistEnabled = true
+            if (!ready.isCompleted) ready.complete(Unit)
             _state
                 .map { sessionKey(it) }
                 .distinctUntilChanged()
@@ -136,7 +142,9 @@ class PlayerCoordinator @Inject constructor(
 
     override suspend fun play(track: Track, queue: List<Track>) {
         mutex.withLock {
-            val resolvedQueue = if (queue.isEmpty()) listOf(track) else queue
+            val resolvedQueue = (if (queue.isEmpty()) listOf(track) else queue)
+                .filter { !it.isVideo }
+                .distinctBy { it.id }
             originalQueue = resolvedQueue
             val index = resolvedQueue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
             val playQueue = if (_state.value.isShuffleEnabled) {
@@ -200,14 +208,12 @@ class PlayerCoordinator @Inject constructor(
     }
 
     override fun skipNext() {
-        val snapshot = _state.value
-        val queue = snapshot.queue
-        if (queue.isEmpty()) return
-        val nextIndex = if (snapshot.queueIndex + 1 < queue.size) snapshot.queueIndex + 1 else 0
-        skipToIndex(queue, nextIndex)
+        consecutiveFailures = 0
+        skipNextInternal()
     }
 
     override fun skipPrevious() {
+        consecutiveFailures = 0
         val snapshot = _state.value
         val queue = snapshot.queue
         if (queue.isEmpty()) return
@@ -217,6 +223,10 @@ class PlayerCoordinator @Inject constructor(
         }
         val prevIndex = if (snapshot.queueIndex > 0) snapshot.queueIndex - 1 else queue.lastIndex
         skipToIndex(queue, prevIndex)
+    }
+
+    suspend fun awaitReady() {
+        ready.await()
     }
 
     override fun setShuffle(enabled: Boolean) {
@@ -279,21 +289,29 @@ class PlayerCoordinator @Inject constructor(
     }
 
     override fun addToQueue(track: Track) {
-        if (track.isVideo) return
+        addToQueue(listOf(track))
+    }
+
+    override fun addToQueue(tracks: List<Track>) {
+        val incoming = tracks.filter { !it.isVideo }.distinctBy { it.id }
+        if (incoming.isEmpty()) return
         scope.launch {
             mutex.withLock {
                 val snapshot = _state.value
                 if (snapshot.currentTrack == null || snapshot.queue.isEmpty()) {
-                    originalQueue = listOf(track)
-                    loadQueue(listOf(track), 0, 0L, playWhenReady = true)
+                    originalQueue = incoming
+                    loadQueue(incoming, 0, 0L, playWhenReady = true)
                     return@withLock
                 }
-                if (snapshot.queue.any { it.id == track.id }) return@withLock
-                val queue = snapshot.queue + track
-                originalQueue = originalQueue.filterNot { it.id == track.id } + track
+                val existing = snapshot.queue.map { it.id }.toHashSet()
+                val toAdd = incoming.filter { it.id !in existing }
+                if (toAdd.isEmpty()) return@withLock
+                val addedIds = toAdd.map { it.id }.toHashSet()
+                val queue = snapshot.queue + toAdd
+                originalQueue = originalQueue.filterNot { it.id in addedIds } + toAdd
                 _state.update { it.copy(queue = queue) }
                 if (isAllLocal(queue)) {
-                    CrashGuard.run { localPlayer.addMediaItems(listOf(track), queue.lastIndex) }
+                    CrashGuard.run { localPlayer.addMediaItems(toAdd, snapshot.queue.size) }
                 }
             }
         }
@@ -382,12 +400,15 @@ class PlayerCoordinator @Inject constructor(
         sleepJob = null
         when (option) {
             SleepOption.OFF -> {
+                applyPauseAtEndOfTrack(false)
                 _state.update { it.copy(sleepEndsAtEpochMs = 0L, sleepAtEndOfTrack = false) }
             }
             SleepOption.END_OF_TRACK -> {
                 _state.update { it.copy(sleepEndsAtEpochMs = 0L, sleepAtEndOfTrack = true) }
+                applyPauseAtEndOfTrack(!isWeb(_state.value.currentTrack))
             }
             else -> {
+                applyPauseAtEndOfTrack(false)
                 val delayMs = option.minutes * 60_000L
                 val endsAt = System.currentTimeMillis() + delayMs
                 _state.update { it.copy(sleepEndsAtEpochMs = endsAt, sleepAtEndOfTrack = false) }
@@ -404,6 +425,14 @@ class PlayerCoordinator @Inject constructor(
         sleepJob?.cancel()
         sleepJob = null
         persist()
+    }
+
+    private fun skipNextInternal() {
+        val snapshot = _state.value
+        val queue = snapshot.queue
+        if (queue.isEmpty()) return
+        val nextIndex = if (snapshot.queueIndex + 1 < queue.size) snapshot.queueIndex + 1 else 0
+        skipToIndex(queue, nextIndex)
     }
 
     private fun skipToIndex(queue: List<Track>, index: Int) {
@@ -443,15 +472,19 @@ class PlayerCoordinator @Inject constructor(
         try {
             if (isWeb(track)) {
                 CrashGuard.run { localPlayer.pause() }
+                applyPauseAtEndOfTrack(false)
                 webPlayer.play(track, autoplay = playWhenReady, openBrowser = playWhenReady)
             } else {
                 CrashGuard.run { webPlayer.pause() }
-                localPlayer.setRepeatMode(_state.value.repeatMode)
-                localPlayer.setSpeed(_state.value.playbackSpeed)
-                if (isAllLocal(queue)) {
-                    localPlayer.setQueue(queue, safeIndex, positionMs, playWhenReady)
-                } else {
-                    localPlayer.setQueue(listOf(track), 0, positionMs, playWhenReady)
+                CrashGuard.run { localPlayer.setRepeatMode(_state.value.repeatMode) }
+                CrashGuard.run { localPlayer.setSpeed(_state.value.playbackSpeed) }
+                applyPauseAtEndOfTrack(_state.value.sleepAtEndOfTrack)
+                CrashGuard.run {
+                    if (isAllLocal(queue)) {
+                        localPlayer.setQueue(queue, safeIndex, positionMs, playWhenReady)
+                    } else {
+                        localPlayer.setQueue(listOf(track), 0, positionMs, playWhenReady)
+                    }
                 }
             }
         } catch (t: Throwable) {
@@ -462,7 +495,6 @@ class PlayerCoordinator @Inject constructor(
 
     private fun applyIndex(queue: List<Track>, index: Int) {
         val track = queue.getOrNull(index) ?: return
-        consecutiveFailures = 0
         _state.update {
             it.copy(
                 currentTrack = track,
@@ -482,6 +514,7 @@ class PlayerCoordinator @Inject constructor(
             pause()
             sleepJob?.cancel()
             sleepJob = null
+            applyPauseAtEndOfTrack(false)
             _state.update { it.copy(sleepEndsAtEpochMs = 0L, sleepAtEndOfTrack = false) }
             return
         }
@@ -490,7 +523,7 @@ class PlayerCoordinator @Inject constructor(
                 seekTo(0L)
                 resume()
             }
-            RepeatMode.ALL -> skipNext()
+            RepeatMode.ALL -> skipNextInternal()
             RepeatMode.OFF -> {
                 pause()
                 seekTo(0L)
@@ -502,7 +535,7 @@ class PlayerCoordinator @Inject constructor(
         consecutiveFailures += 1
         _state.update { it.copy(isPlaying = false, errorMessage = message) }
         if (consecutiveFailures < 3 && _state.value.queue.size > 1) {
-            CrashGuard.run { skipNext() }
+            CrashGuard.run { skipNextInternal() }
         }
     }
 
@@ -545,9 +578,11 @@ class PlayerCoordinator @Inject constructor(
 
     private suspend fun restoreSession() {
         val session = withContext(Dispatchers.IO) { sessionRepository.load() } ?: return
+        val playable = withContext(Dispatchers.IO) {
+            session.queue.filter { isWeb(it) || localPlayer.canPlay(it) }
+        }
         mutex.withLock {
             if (_state.value.currentTrack != null) return@withLock
-            val playable = session.queue.filter { isWeb(it) || localPlayer.canPlay(it) }
             if (playable.isEmpty()) {
                 sessionRepository.clear()
                 return@withLock
@@ -565,6 +600,10 @@ class PlayerCoordinator @Inject constructor(
             }
             loadQueue(playable, index, session.positionMs.coerceAtLeast(0L), playWhenReady = false)
         }
+    }
+
+    private fun applyPauseAtEndOfTrack(enabled: Boolean) {
+        CrashGuard.run { localPlayer.setPauseAtEndOfMediaItems(enabled) }
     }
 
     private fun isWeb(track: Track?): Boolean = track?.source == PlaybackSource.WEB

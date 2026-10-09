@@ -52,6 +52,7 @@ class LibraryViewModel @Inject constructor(
     private val selectedGroupKey = MutableStateFlow<String?>(null)
     private val selecting = MutableStateFlow(false)
     private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
+    private val pickingForPlaylist = MutableStateFlow(false)
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice
     private val _refreshing = MutableStateFlow(false)
@@ -91,7 +92,9 @@ class LibraryViewModel @Inject constructor(
         Filters(browse, sort, group)
     }
 
-    private val selection = combine(selecting, selectedIds) { on, ids -> on to ids }
+    private val selection = combine(selecting, selectedIds, pickingForPlaylist) { on, ids, picking ->
+        Triple(on, ids, picking)
+    }
 
     private val prefsSnap = combine(
         observePrefs.favorites(),
@@ -110,7 +113,7 @@ class LibraryViewModel @Inject constructor(
         _refreshing,
     ) { tracks, prefs, filter, sel, refreshing ->
         runCatching {
-            buildState(tracks, prefs, filter).copy(
+            buildState(tracks, prefs, filter, picking = sel.third).copy(
                 selecting = sel.first,
                 selectedIds = sel.second,
                 refreshing = refreshing,
@@ -122,6 +125,7 @@ class LibraryViewModel @Inject constructor(
                 ignoredFolders = prefs.ignoredFolders,
                 selecting = sel.first,
                 selectedIds = sel.second,
+                pickingForPlaylist = sel.third,
                 refreshing = refreshing,
             ),
         )
@@ -174,7 +178,7 @@ class LibraryViewModel @Inject constructor(
 
     fun closeGroup() {
         selectedGroupKey.value = null
-        if (selecting.value) exitSelection()
+        if (selecting.value || pickingForPlaylist.value) exitSelection()
     }
 
     fun toggleLiked(trackId: String) {
@@ -196,6 +200,30 @@ class LibraryViewModel @Inject constructor(
         if (track.isVideo) return
         controls.addToQueue(track)
         _notice.value = "Se agregó al final de la cola"
+    }
+
+    fun playSelected() {
+        val list = selectedTracks()
+        val first = list.firstOrNull() ?: return
+        viewModelScope.launch { runCatching { playTrack(first, list) } }
+        _notice.value = if (list.size == 1) {
+            "Reproduciendo 1 canción"
+        } else {
+            "Reproduciendo ${list.size} canciones"
+        }
+        exitSelection()
+    }
+
+    fun addSelectedToQueue() {
+        val list = selectedTracks()
+        if (list.isEmpty()) return
+        controls.addToQueue(list)
+        _notice.value = if (list.size == 1) {
+            "Se agregó a la cola de reproducción"
+        } else {
+            "Se agregaron ${list.size} a la cola de reproducción"
+        }
+        exitSelection()
     }
 
     fun playAll() {
@@ -258,6 +286,37 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    fun startAddToPlaylist() {
+        if (uiState.value.selectedPlaylistId.isNullOrBlank()) return
+        pickingForPlaylist.value = true
+        selecting.value = true
+        selectedIds.value = emptySet()
+    }
+
+    fun confirmAddSelectedToPlaylist() {
+        val playlistId = uiState.value.selectedPlaylistId ?: return
+        val existing = uiState.value.playlists
+            .firstOrNull { it.id == playlistId }
+            ?.trackIds
+            .orEmpty()
+            .toHashSet()
+        val toAdd = selectedTracks().map { it.id }.filter { it.isNotBlank() && it !in existing }.distinct()
+        if (toAdd.isEmpty()) {
+            _notice.value = "Esas canciones ya están en la lista"
+            exitSelection()
+            return
+        }
+        viewModelScope.launch {
+            runCatching { observePrefs.addToPlaylist(playlistId, toAdd) }
+            _notice.value = if (toAdd.size == 1) {
+                "Se agregó a la lista"
+            } else {
+                "Se agregaron ${toAdd.size} a la lista"
+            }
+            exitSelection()
+        }
+    }
+
     fun removeFromCurrentPlaylist(trackId: String) {
         val id = uiState.value.selectedPlaylistId ?: return
         viewModelScope.launch {
@@ -287,6 +346,7 @@ class LibraryViewModel @Inject constructor(
     fun exitSelection() {
         selecting.value = false
         selectedIds.value = emptySet()
+        pickingForPlaylist.value = false
     }
 
     fun startSelection(trackId: String) {
@@ -299,7 +359,7 @@ class LibraryViewModel @Inject constructor(
         selectedIds.update { current ->
             if (trackId in current) current - trackId else current + trackId
         }
-        if (selectedIds.value.isEmpty()) selecting.value = false
+        if (selectedIds.value.isEmpty() && !pickingForPlaylist.value) selecting.value = false
     }
 
     fun toggleSelectGroup(group: LibraryGroup) {
@@ -309,7 +369,7 @@ class LibraryViewModel @Inject constructor(
         selectedIds.update { current ->
             if (ids.all { it in current }) current - ids else current + ids
         }
-        if (selectedIds.value.isEmpty()) selecting.value = false
+        if (selectedIds.value.isEmpty() && !pickingForPlaylist.value) selecting.value = false
     }
 
     fun selectAllVisible() {
@@ -325,6 +385,24 @@ class LibraryViewModel @Inject constructor(
 
     fun consumeNotice() {
         _notice.value = null
+    }
+
+    private fun selectedTracks(): List<Track> {
+        val ids = selectedIds.value
+        if (ids.isEmpty()) return emptyList()
+        val snapshot = uiState.value
+        val ordered = if (snapshot.showingGroups) {
+            snapshot.groups.flatMap { it.tracks }
+        } else {
+            snapshot.visibleTracks
+        }.filter { it.id in ids && !it.isVideo }
+        val extra = allTracks.value.filter { it.id in ids && !it.isVideo }
+        val seen = mutableSetOf<String>()
+        val result = ArrayList<Track>(ids.size)
+        (ordered + extra).forEach { track ->
+            if (seen.add(track.id)) result.add(track)
+        }
+        return result
     }
 
     fun deleteSelected() {
@@ -390,6 +468,7 @@ class LibraryViewModel @Inject constructor(
         tracks: List<Track>,
         prefs: PrefsSnap,
         filter: Filters,
+        picking: Boolean,
     ): LibraryUiState {
         val songs = sortTracks(
             tracks.filter { !it.isVideo && (it.folderPath.isBlank() || it.folderPath !in prefs.ignoredFolders) },
@@ -433,7 +512,7 @@ class LibraryViewModel @Inject constructor(
             BrowseMode.PLAYLISTS -> {
                 val groups = prefs.playlists.map { playlist ->
                     val byId = songs.associateBy { it.id }
-                    val list = playlist.trackIds.mapNotNull { byId[it] }
+                    val list = playlist.trackIds.distinct().mapNotNull { byId[it] }.distinctBy { it.id }
                     LibraryGroup(
                         key = playlistKey(playlist.id),
                         title = playlist.name,
@@ -493,6 +572,26 @@ class LibraryViewModel @Inject constructor(
                     detailState(base, selected)
                 }
             }
+        }.let { state ->
+            if (!picking) return@let state.copy(pickingForPlaylist = false)
+            val playlistId = state.selectedPlaylistId
+            if (playlistId.isNullOrBlank()) return@let state.copy(pickingForPlaylist = false)
+            val existing = prefs.playlists.firstOrNull { it.id == playlistId }?.trackIds.orEmpty().toHashSet()
+            val candidates = songs
+                .filter { it.id !in existing }
+                .distinctBy { it.mediaUri.ifBlank { it.id } }
+            state.copy(
+                pickingForPlaylist = true,
+                showingGroups = false,
+                isHome = false,
+                visibleTracks = candidates,
+                groups = emptyList(),
+                countLabel = if (candidates.isEmpty()) {
+                    "Todas las canciones ya están en esta lista"
+                } else {
+                    "${candidates.size} canciones para agregar"
+                },
+            )
         }
     }
 

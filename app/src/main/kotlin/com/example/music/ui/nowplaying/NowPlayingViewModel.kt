@@ -17,7 +17,6 @@ import com.example.music.domain.model.SyncedLyrics
 import com.example.music.domain.model.next
 import com.example.music.domain.usecase.ControlPlaybackUseCase
 import com.example.music.domain.usecase.GetSyncedLyricsUseCase
-import com.example.music.domain.usecase.HandleVoiceCommandUseCase
 import com.example.music.domain.usecase.ObserveLibraryPrefsUseCase
 import com.example.music.domain.usecase.ObservePlayerStateUseCase
 import com.example.music.domain.usecase.ToggleFavoriteUseCase
@@ -44,7 +43,6 @@ class NowPlayingViewModel @Inject constructor(
     private val getSyncedLyrics: GetSyncedLyricsUseCase,
     observePrefs: ObserveLibraryPrefsUseCase,
     private val toggleFavorite: ToggleFavoriteUseCase,
-    private val handleVoice: HandleVoiceCommandUseCase,
 ) : ViewModel() {
 
     val playerState: StateFlow<PlayerState> = observePlayerState().stateIn(
@@ -61,9 +59,6 @@ class NowPlayingViewModel @Inject constructor(
 
     private val _showLyrics = MutableStateFlow(false)
     val showLyrics: StateFlow<Boolean> = _showLyrics.asStateFlow()
-
-    private val _voiceStatus = MutableStateFlow<String?>(null)
-    val voiceStatus: StateFlow<String?> = _voiceStatus.asStateFlow()
 
     val isFavorite: StateFlow<Boolean> = combine(
         playerState.map { it.currentTrack?.id },
@@ -95,8 +90,6 @@ class NowPlayingViewModel @Inject constructor(
     fun skipNext() = controls.skipNext()
     fun skipPrevious() = controls.skipPrevious()
     fun seekTo(positionMs: Long) = controls.seekTo(positionMs)
-    fun rewind10() = controls.seekBy(-10_000L)
-    fun forward10() = controls.seekBy(10_000L)
     fun toggleLyrics() {
         _showLyrics.value = !_showLyrics.value
     }
@@ -116,30 +109,22 @@ class NowPlayingViewModel @Inject constructor(
     fun removeFromQueue(trackId: String) = controls.removeFromQueue(setOf(trackId))
     fun moveInQueue(fromIndex: Int, toIndex: Int) = controls.moveInQueue(fromIndex, toIndex)
     fun reopenWebBridge() = controls.reopenWebBridge()
-    fun setPlaybackSpeed(speed: Float) = controls.setPlaybackSpeed(speed)
     fun setSleepTimer(option: SleepOption) = controls.setSleepTimer(option)
-
-    fun onSpoken(text: String) {
-        viewModelScope.launch {
-            _voiceStatus.value = runCatching { handleVoice(text) }
-                .getOrElse { it.message ?: "No se pudo" }
-        }
-    }
-
-    fun setVoiceStatus(message: String) {
-        _voiceStatus.value = message
-    }
 
     private suspend fun extractPalette(artworkUri: String?): List<Color> = withContext(Dispatchers.IO) {
         if (artworkUri.isNullOrBlank()) return@withContext listOf(Background, Surface)
         val bitmap = decodeBitmap(artworkUri) ?: return@withContext listOf(Background, Surface)
-        val palette = Palette.from(bitmap).clearFilters().generate()
-        val dominant = palette.dominantSwatch?.rgb?.let(::Color) ?: Background
-        val dark = palette.darkMutedSwatch?.rgb?.let(::Color)
-            ?: palette.darkVibrantSwatch?.rgb?.let(::Color)
-            ?: Surface
-        val accent = palette.vibrantSwatch?.rgb?.let(::Color) ?: Accent
-        listOf(dominant.copy(alpha = 0.95f), dark.copy(alpha = 0.95f), accent.copy(alpha = 0.35f))
+        try {
+            val palette = Palette.from(bitmap).clearFilters().generate()
+            val dominant = palette.dominantSwatch?.rgb?.let(::Color) ?: Background
+            val dark = palette.darkMutedSwatch?.rgb?.let(::Color)
+                ?: palette.darkVibrantSwatch?.rgb?.let(::Color)
+                ?: Surface
+            val accent = palette.vibrantSwatch?.rgb?.let(::Color) ?: Accent
+            listOf(dominant.copy(alpha = 0.95f), dark.copy(alpha = 0.95f), accent.copy(alpha = 0.35f))
+        } finally {
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
     }
 
     private fun decodeBitmap(artworkUri: String): Bitmap? {
@@ -147,15 +132,46 @@ class NowPlayingViewModel @Inject constructor(
         return runCatching {
             when {
                 artworkUri.startsWith("http") ->
-                    java.net.URL(artworkUri).openStream().use { BitmapFactory.decodeStream(it) }
+                    java.net.URL(artworkUri).openStream().use { stream ->
+                        decodeSampled(stream.readBytes(), TARGET_ART)
+                    }
                 artworkUri.startsWith("file:") -> {
                     val path = Uri.parse(artworkUri).path ?: return@runCatching null
-                    BitmapFactory.decodeFile(path)
+                    decodeFileSampled(path, TARGET_ART)
                 }
-                else -> context.contentResolver.openInputStream(Uri.parse(artworkUri))?.use {
-                    BitmapFactory.decodeStream(it)
+                else -> context.contentResolver.openInputStream(Uri.parse(artworkUri))?.use { stream ->
+                    decodeSampled(stream.readBytes(), TARGET_ART)
                 }
             }
         }.getOrNull()
+    }
+
+    private fun decodeFileSampled(path: String, target: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, target)
+        }
+        return BitmapFactory.decodeFile(path, options)
+    }
+
+    private fun decodeSampled(bytes: ByteArray, target: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, target)
+        }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    }
+
+    private fun sampleSize(width: Int, height: Int, target: Int): Int {
+        var size = 1
+        val largest = maxOf(width, height).coerceAtLeast(1)
+        while (largest / size > target * 2) size *= 2
+        return size
+    }
+
+    private companion object {
+        const val TARGET_ART = 320
     }
 }

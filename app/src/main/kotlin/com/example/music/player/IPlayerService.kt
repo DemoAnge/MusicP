@@ -20,6 +20,7 @@ interface IPlayerService {
     fun setRepeat(mode: RepeatMode)
     fun playNext(track: Track)
     fun addToQueue(track: Track)
+    fun addToQueue(tracks: List<Track>)
     fun moveInQueue(fromIndex: Int, toIndex: Int)
     fun playQueueIndex(index: Int)
     fun removeFromQueue(trackIds: Set<String>)

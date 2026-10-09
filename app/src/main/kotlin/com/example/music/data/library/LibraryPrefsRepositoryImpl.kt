@@ -34,6 +34,7 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
     private val searchHistory = MutableStateFlow(readSearchHistory())
     private val playlists = MutableStateFlow(readPlaylists())
     private val ignoredFolders = MutableStateFlow(readIgnoredFolders())
+    private val playbackSpeed = MutableStateFlow(readPlaybackSpeed())
 
     override fun observeFavoriteIds(): Flow<Set<String>> = favorites.asStateFlow()
 
@@ -152,11 +153,22 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
     }
 
     override suspend fun addToPlaylist(playlistId: String, trackId: String) {
-        if (playlistId.isBlank() || trackId.isBlank()) return
+        addToPlaylist(playlistId, listOf(trackId))
+    }
+
+    override suspend fun addToPlaylist(playlistId: String, trackIds: List<String>) {
+        if (playlistId.isBlank()) return
+        val incoming = trackIds.filter { it.isNotBlank() }.distinct()
+        if (incoming.isEmpty()) return
         mutex.withLock {
             val next = playlists.value.map { playlist ->
-                if (playlist.id != playlistId || trackId in playlist.trackIds) playlist
-                else playlist.copy(trackIds = playlist.trackIds + trackId)
+                if (playlist.id != playlistId) playlist
+                else {
+                    val existing = playlist.trackIds.toHashSet()
+                    val extra = incoming.filter { it !in existing }
+                    if (extra.isEmpty()) playlist
+                    else playlist.copy(trackIds = playlist.trackIds + extra)
+                }
             }
             playlists.value = next
             prefs.edit().putString(KEY_PLAYLISTS, gson.toJson(next)).apply()
@@ -207,10 +219,24 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         if (json.isBlank()) return emptyList()
         val type = object : TypeToken<List<UserPlaylist>>() {}.type
         return runCatching { gson.fromJson<List<UserPlaylist>>(json, type) }.getOrNull().orEmpty()
+            .map { playlist -> playlist.copy(trackIds = playlist.trackIds.distinct()) }
+    }
+
+    override fun observePlaybackSpeed(): Flow<Float> = playbackSpeed.asStateFlow()
+
+    override suspend fun setPlaybackSpeed(speed: Float) {
+        val clamped = speed.coerceIn(0.8f, 1.5f)
+        mutex.withLock {
+            playbackSpeed.value = clamped
+            prefs.edit().putFloat(KEY_PLAYBACK_SPEED, clamped).apply()
+        }
     }
 
     private fun readIgnoredFolders(): Set<String> =
         prefs.getStringSet(KEY_IGNORED_FOLDERS, emptySet())?.toSet().orEmpty()
+
+    private fun readPlaybackSpeed(): Float =
+        prefs.getFloat(KEY_PLAYBACK_SPEED, 1f).coerceIn(0.8f, 1.5f)
 
     private companion object {
         const val PREFS_NAME = "library_prefs"
@@ -221,6 +247,7 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         const val KEY_SEARCH_HISTORY = "search_history"
         const val KEY_PLAYLISTS = "user_playlists_json"
         const val KEY_IGNORED_FOLDERS = "ignored_folders"
+        const val KEY_PLAYBACK_SPEED = "playback_speed"
         const val MAX_RECENTS = 80
         const val MAX_SEARCH_HISTORY = 12
     }

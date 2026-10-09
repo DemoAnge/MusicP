@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 
 @UnstableApi
 @AndroidEntryPoint
@@ -63,10 +64,16 @@ class MusicPlaybackService : MediaSessionService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        CrashGuard.run { handleAction(intent) }
+        enterForeground()
         val result = runCatching { super.onStartCommand(intent, flags, startId) }
             .getOrDefault(START_STICKY)
-        enterForeground()
+        if (intent?.action != null) {
+            serviceScope.launch {
+                runCatching { coordinator.awaitReady() }
+                CrashGuard.run { handleAction(intent) }
+                enterForeground()
+            }
+        }
         return result
     }
 
@@ -107,7 +114,7 @@ class MusicPlaybackService : MediaSessionService() {
             MediaSession.Builder(this, player)
                 .setId("music_playback")
                 .setSessionActivity(pendingSessionActivity())
-                .setBitmapLoader(CacheBitmapLoader(DataSourceBitmapLoader(this)))
+                .setBitmapLoader(CacheBitmapLoader(DataSourceBitmapLoader.Builder(this).build()))
                 .build()
         }.getOrNull()
         player.addListener(object : Player.Listener {
@@ -129,9 +136,30 @@ class MusicPlaybackService : MediaSessionService() {
         when (intent?.action) {
             ACTION_PLAY -> coordinator.resume()
             ACTION_PAUSE -> coordinator.pause()
-            ACTION_TOGGLE -> coordinator.togglePlayPause()
-            ACTION_NEXT -> coordinator.skipNext()
-            ACTION_PREVIOUS -> coordinator.skipPrevious()
+            ACTION_TOGGLE -> {
+                if (coordinator.state.value.currentTrack == null) openApp()
+                else coordinator.togglePlayPause()
+            }
+            ACTION_NEXT -> {
+                if (coordinator.state.value.currentTrack == null) openApp()
+                else coordinator.skipNext()
+            }
+            ACTION_PREVIOUS -> {
+                if (coordinator.state.value.currentTrack == null) openApp()
+                else coordinator.skipPrevious()
+            }
+        }
+    }
+
+    private fun openApp() {
+        runCatching {
+            val launch = (packageManager.getLaunchIntentForPackage(packageName)
+                ?: Intent(this, com.example.music.MainActivity::class.java)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            }
+            startActivity(launch)
         }
     }
 
@@ -223,21 +251,38 @@ class MusicPlaybackService : MediaSessionService() {
     private fun loadLargeIcon(): Bitmap? {
         val metadata = runCatching { localPlayer.exoPlayer.mediaMetadata }.getOrNull() ?: return null
         val data = metadata.artworkData ?: return null
-        val decoded = runCatching { BitmapFactory.decodeByteArray(data, 0, data.size) }.getOrNull()
-            ?: return null
+        val decoded = runCatching { decodeSampled(data, 256) }.getOrNull() ?: return null
         return scale(decoded)
+    }
+
+    private fun decodeSampled(data: ByteArray, target: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, target)
+        }
+        return BitmapFactory.decodeByteArray(data, 0, data.size, options)
+    }
+
+    private fun sampleSize(width: Int, height: Int, target: Int): Int {
+        var size = 1
+        val largest = maxOf(width, height).coerceAtLeast(1)
+        while (largest / size > target * 2) size *= 2
+        return size
     }
 
     private fun scale(bitmap: Bitmap): Bitmap {
         val largest = maxOf(bitmap.width, bitmap.height)
         if (largest <= 256) return bitmap
         val factor = 256f / largest
-        return Bitmap.createScaledBitmap(
+        val scaled = Bitmap.createScaledBitmap(
             bitmap,
             (bitmap.width * factor).toInt().coerceAtLeast(1),
             (bitmap.height * factor).toInt().coerceAtLeast(1),
             true,
         )
+        if (scaled !== bitmap && !bitmap.isRecycled) bitmap.recycle()
+        return scaled
     }
 
     private fun serviceAction(action: String, requestCode: Int): PendingIntent {
@@ -291,9 +336,9 @@ class MusicPlaybackService : MediaSessionService() {
         )
     }
 
-    private companion object {
-        const val CHANNEL_ID = "music_playback_controls"
-        const val NOTIFICATION_ID = 1001
+    companion object {
+        private const val CHANNEL_ID = "music_playback_controls"
+        private const val NOTIFICATION_ID = 1001
         const val ACTION_PLAY = "com.dmusic.action.PLAY"
         const val ACTION_PAUSE = "com.dmusic.action.PAUSE"
         const val ACTION_TOGGLE = "com.dmusic.action.TOGGLE"

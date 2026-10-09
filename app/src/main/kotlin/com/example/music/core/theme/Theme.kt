@@ -16,6 +16,9 @@ private val DarkColors = darkColorScheme(
     surfaceVariant = SurfaceElevated,
     onSurfaceVariant = ArtistGray,
     outline = SeekTrack,
+    inverseSurface = SurfaceElevated,
+    inverseOnSurface = OnBackground,
+    inversePrimary = Accent,
 )
 
 @Composable

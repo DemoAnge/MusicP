@@ -21,6 +21,7 @@ class ControlPlaybackUseCase @Inject constructor(
     fun setRepeat(mode: RepeatMode) = playerService.setRepeat(mode)
     fun playNext(track: Track) = playerService.playNext(track)
     fun addToQueue(track: Track) = playerService.addToQueue(track)
+    fun addToQueue(tracks: List<Track>) = playerService.addToQueue(tracks)
     fun moveInQueue(fromIndex: Int, toIndex: Int) = playerService.moveInQueue(fromIndex, toIndex)
     fun playQueueIndex(index: Int) = playerService.playQueueIndex(index)
     fun removeFromQueue(trackIds: Set<String>) = playerService.removeFromQueue(trackIds)

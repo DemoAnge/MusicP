@@ -10,7 +10,7 @@ class PlayTrackUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(track: Track, queue: List<Track>) {
         if (track.isVideo) return
-        val musicQueue = queue.filter { !it.isVideo }
+        val musicQueue = queue.filter { !it.isVideo }.distinctBy { it.id }
         runCatching { recordRecentPlay(track.id) }
         runCatching { playerService.play(track, musicQueue) }
     }

@@ -21,7 +21,10 @@ interface LibraryPrefsRepository {
     suspend fun createPlaylist(name: String): UserPlaylist?
     suspend fun deletePlaylist(id: String)
     suspend fun addToPlaylist(playlistId: String, trackId: String)
+    suspend fun addToPlaylist(playlistId: String, trackIds: List<String>)
     suspend fun removeFromPlaylist(playlistId: String, trackId: String)
     fun observeIgnoredFolders(): Flow<Set<String>>
     suspend fun setFolderIgnored(folderPath: String, ignored: Boolean)
+    fun observePlaybackSpeed(): Flow<Float>
+    suspend fun setPlaybackSpeed(speed: Float)
 }

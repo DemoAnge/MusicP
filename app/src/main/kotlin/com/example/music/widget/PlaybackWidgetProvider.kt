@@ -14,6 +14,7 @@ import android.widget.RemoteViews
 import com.example.music.MainActivity
 import com.example.music.R
 import com.example.music.domain.model.PlayerState
+import com.example.music.player.MusicPlaybackService
 import com.example.music.player.PlayerCoordinator
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
@@ -38,24 +39,14 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         runCatching { super.onReceive(context, intent) }
-        when (intent.action) {
-            ACTION_TOGGLE -> {
-                val state = currentState()
-                if (state.currentTrack == null) {
-                    openApp(context)
-                } else {
-                    runCatching { coordinatorOrNull()?.togglePlayPause() }
-                }
-                refresh(context)
-            }
-            ACTION_NEXT -> {
-                runCatching { coordinatorOrNull()?.skipNext() }
-                refresh(context)
-            }
-            ACTION_PREVIOUS -> {
-                runCatching { coordinatorOrNull()?.skipPrevious() }
-                refresh(context)
-            }
+        val serviceAction = when (intent.action) {
+            ACTION_TOGGLE -> MusicPlaybackService.ACTION_TOGGLE
+            ACTION_NEXT -> MusicPlaybackService.ACTION_NEXT
+            ACTION_PREVIOUS -> MusicPlaybackService.ACTION_PREVIOUS
+            else -> null
+        }
+        if (serviceAction != null) {
+            startPlaybackService(context, serviceAction)
         }
     }
 
@@ -64,17 +55,6 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
 
     private fun currentState(): PlayerState =
         runCatching { coordinatorOrNull()?.state?.value }.getOrNull() ?: PlayerState()
-
-    private fun refresh(context: Context) {
-        runCatching {
-            val manager = AppWidgetManager.getInstance(context)
-            val ids = manager.getAppWidgetIds(ComponentName(context, PlaybackWidgetProvider::class.java))
-            if (ids.isEmpty()) return
-            val state = currentState()
-            val views = buildViews(context, state)
-            ids.forEach { id -> manager.updateAppWidget(id, views) }
-        }
-    }
 
     companion object {
         const val ACTION_TOGGLE = "com.dmusic.widget.TOGGLE"
@@ -113,11 +93,20 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                     views.setImageViewResource(R.id.widget_art, R.drawable.ic_widget_album)
                 }
             }
-            views.setOnClickPendingIntent(R.id.widget_root, activityIntent(context, 10))
-            views.setOnClickPendingIntent(R.id.widget_art, activityIntent(context, 11))
-            views.setOnClickPendingIntent(R.id.widget_play, broadcastIntent(context, ACTION_TOGGLE, 20))
-            views.setOnClickPendingIntent(R.id.widget_prev, broadcastIntent(context, ACTION_PREVIOUS, 21))
-            views.setOnClickPendingIntent(R.id.widget_next, broadcastIntent(context, ACTION_NEXT, 22))
+            views.setOnClickPendingIntent(R.id.widget_art, activityIntent(context, 10))
+            views.setOnClickPendingIntent(R.id.widget_info, activityIntent(context, 11))
+            views.setOnClickPendingIntent(
+                R.id.widget_play,
+                serviceIntent(context, MusicPlaybackService.ACTION_TOGGLE, 20),
+            )
+            views.setOnClickPendingIntent(
+                R.id.widget_prev,
+                serviceIntent(context, MusicPlaybackService.ACTION_PREVIOUS, 21),
+            )
+            views.setOnClickPendingIntent(
+                R.id.widget_next,
+                serviceIntent(context, MusicPlaybackService.ACTION_NEXT, 22),
+            )
             return views
         }
 
@@ -135,7 +124,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                         uri.path?.let(::decodeScaled)
                     } else {
                         context.contentResolver.openInputStream(uri)?.use { stream ->
-                            BitmapFactory.decodeStream(stream)?.let(::scale)
+                            decodeSampledBytes(stream.readBytes())
                         }
                     }
                 }
@@ -156,6 +145,15 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             return BitmapFactory.decodeFile(path, options)?.let(::scale)
         }
 
+        private fun decodeSampledBytes(bytes: ByteArray): Bitmap? {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, 160)
+            }
+            return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.let(::scale)
+        }
+
         private fun sampleSize(width: Int, height: Int, target: Int): Int {
             var size = 1
             val largest = maxOf(width, height).coerceAtLeast(1)
@@ -167,12 +165,14 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             val largest = maxOf(bitmap.width, bitmap.height)
             if (largest <= 160) return bitmap
             val factor = 160f / largest
-            return Bitmap.createScaledBitmap(
+            val scaled = Bitmap.createScaledBitmap(
                 bitmap,
                 (bitmap.width * factor).toInt().coerceAtLeast(1),
                 (bitmap.height * factor).toInt().coerceAtLeast(1),
                 true,
             )
+            if (scaled !== bitmap && !bitmap.isRecycled) bitmap.recycle()
+            return scaled
         }
 
         private fun activityIntent(context: Context, requestCode: Int): PendingIntent {
@@ -190,21 +190,30 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             )
         }
 
-        private fun broadcastIntent(context: Context, action: String, requestCode: Int): PendingIntent {
-            val intent = Intent(context, PlaybackWidgetProvider::class.java).setAction(action)
-            return PendingIntent.getBroadcast(context, requestCode, intent, pendingFlags())
+        private fun serviceIntent(context: Context, action: String, requestCode: Int): PendingIntent {
+            val intent = Intent(context, MusicPlaybackService::class.java).setAction(action)
+            return if (Build.VERSION.SDK_INT >= 26) {
+                PendingIntent.getForegroundService(context, requestCode, intent, pendingFlags())
+            } else {
+                PendingIntent.getService(context, requestCode, intent, pendingFlags())
+            }
+        }
+
+        fun startPlaybackService(context: Context, action: String) {
+            val intent = Intent(context, MusicPlaybackService::class.java).setAction(action)
+            runCatching {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            }
         }
 
         private fun pendingFlags(): Int {
             var flags = PendingIntent.FLAG_UPDATE_CURRENT
             if (Build.VERSION.SDK_INT >= 23) flags = flags or PendingIntent.FLAG_IMMUTABLE
             return flags
-        }
-
-        private fun openApp(context: Context) {
-            runCatching {
-                activityIntent(context, 12).send()
-            }
         }
     }
 }

@@ -23,9 +23,13 @@ class ObserveLibraryPrefsUseCase @Inject constructor(
     suspend fun deletePlaylist(id: String) = prefs.deletePlaylist(id)
     suspend fun addToPlaylist(playlistId: String, trackId: String) =
         prefs.addToPlaylist(playlistId, trackId)
+    suspend fun addToPlaylist(playlistId: String, trackIds: List<String>) =
+        prefs.addToPlaylist(playlistId, trackIds)
     suspend fun removeFromPlaylist(playlistId: String, trackId: String) =
         prefs.removeFromPlaylist(playlistId, trackId)
     fun ignoredFolders() = prefs.observeIgnoredFolders()
     suspend fun setFolderIgnored(folderPath: String, ignored: Boolean) =
         prefs.setFolderIgnored(folderPath, ignored)
+    fun playbackSpeed() = prefs.observePlaybackSpeed()
+    suspend fun setPlaybackSpeed(speed: Float) = prefs.setPlaybackSpeed(speed)
 }

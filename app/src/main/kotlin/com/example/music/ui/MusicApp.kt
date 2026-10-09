@@ -17,7 +17,6 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -41,6 +41,7 @@ import com.example.music.core.theme.Background
 import com.example.music.core.theme.Accent
 import com.example.music.core.theme.Surface
 import com.example.music.ui.components.MiniPlayer
+import com.example.music.ui.components.MusicSnackbarHost
 import com.example.music.ui.library.LibraryScreen
 import com.example.music.ui.lockscreen.LockScreenAuthScreen
 import com.example.music.ui.lockscreen.LockScreenAuthViewModel
@@ -48,6 +49,9 @@ import com.example.music.ui.driving.DrivingScreen
 import com.example.music.ui.nowplaying.NowPlayingScreen
 import com.example.music.ui.search.SearchScreen
 import com.example.music.ui.settings.SettingsScreen
+import com.example.music.ui.voice.VoiceEvent
+import com.example.music.ui.voice.findComponentActivity
+import com.example.music.ui.voice.rememberActivityVoiceViewModel
 
 private object Destinations {
     const val Library = "library"
@@ -73,6 +77,9 @@ fun MusicApp(
     val showLockPrompt by lockScreenAuthViewModel.showPrompt.collectAsStateWithLifecycle()
     val showLockBanner by lockScreenAuthViewModel.showBanner.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val activity = remember(context) { context.findComponentActivity() }
+    val voiceVm = rememberActivityVoiceViewModel()
     val notificationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
@@ -106,6 +113,17 @@ fun MusicApp(
         }
     }
 
+    LaunchedEffect(voiceVm) {
+        voiceVm.events.collect { event ->
+            when (event) {
+                VoiceEvent.OpenQueue -> openNowPlaying()
+                VoiceEvent.Exit -> {
+                    runCatching { activity?.moveTaskToBack(true) }
+                }
+            }
+        }
+    }
+
     BackHandler(enabled = onNowPlaying) { closeNowPlaying() }
     BackHandler(enabled = onDriving) { navController.popBackStack() }
 
@@ -118,7 +136,7 @@ fun MusicApp(
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             containerColor = Background,
-            snackbarHost = { SnackbarHost(snackbar) },
+            snackbarHost = { MusicSnackbarHost(snackbar) },
             bottomBar = {
                 if (!hideChrome) {
                     Column {
@@ -126,8 +144,8 @@ fun MusicApp(
                             MiniPlayer(
                                 playerState = playerState,
                                 onTogglePlay = playerBarViewModel::togglePlayPause,
+                                onSkipPrevious = playerBarViewModel::skipPrevious,
                                 onSkipNext = playerBarViewModel::skipNext,
-                                onRewind = playerBarViewModel::rewind10,
                                 onSeek = playerBarViewModel::seekTo,
                                 onOpenNowPlaying = { openNowPlaying() },
                             )

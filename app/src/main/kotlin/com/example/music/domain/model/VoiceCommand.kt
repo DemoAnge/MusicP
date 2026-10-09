@@ -1,42 +1,58 @@
 package com.example.music.domain.model
 
 sealed interface VoiceCommand {
+    data object Play : VoiceCommand
     data object Pause : VoiceCommand
-    data object Resume : VoiceCommand
     data object Next : VoiceCommand
     data object Previous : VoiceCommand
-    data object Rewind : VoiceCommand
-    data class PlayQuery(val query: String) : VoiceCommand
+    data object Shuffle : VoiceCommand
+    data object RepeatOne : VoiceCommand
+    data object RepeatAll : VoiceCommand
+    data object Queue : VoiceCommand
+    data object Exit : VoiceCommand
 }
 
+data class VoiceResult(
+    val message: String,
+    val openQueue: Boolean = false,
+    val exit: Boolean = false,
+)
+
 object VoiceCommandParser {
-    private val playPrefix = Regex(
-        "^(?:ponme|pon|reproduce|busca|play|quiero o[ií]r|pon la canci[oó]n)\\s+(.+)$",
-        RegexOption.IGNORE_CASE,
-    )
+    private val wake = Regex("^(?:oye |ok |okay |hey |activar )?m[uú]sica$")
+    private val exit = Regex("^(salir|exit|cierra|cerrar|cierra la app|cierra la aplicaci[oó]n)$")
+    private val queue = Regex("^(cola|queue|lista|la cola)$")
+    private val shuffle = Regex("^(mezclar|shuffle|aleatorio|activar aleatorio)$")
+    private val repeatOne = Regex("^(repetir (uno|1|una)|repeat one)$")
+    private val repeatAll = Regex("^(repetir (todos|todo|all)|repeat all)$")
+    private val next = Regex("^(siguiente|next|adelantar|adelante|skip)$")
+    private val previous = Regex("^(retroceder|atr[aá]s|anterior|previous)$")
+    private val pause = Regex("^(pausa|pause|para|stop|det[eé]n(?:te)?)$")
+    private val play = Regex("^(play|reproduce|reproducir|contin[uú]a|continuar|reanuda|sigue)$")
+    private val noise = Regex("[¿?¡!.,]")
+    private val spaces = Regex("\\s+")
+
+    fun normalize(raw: String): String = raw.trim().lowercase()
+        .replace(noise, "")
+        .replace(spaces, " ")
+        .trim()
+
+    fun isWakeWord(raw: String): Boolean = wake.matches(normalize(raw))
 
     fun parse(raw: String): VoiceCommand? {
-        val text = raw.trim().lowercase()
-            .replace(Regex("[¿?¡!]"), "")
-            .replace(Regex("\\s+"), " ")
-            .trim()
+        val text = normalize(raw)
         if (text.isEmpty()) return null
         return when {
-            text.matches(Regex("^(pausa|pause|para|stop|det[eé]n(?:te)?|para la m[uú]sica)$")) ->
-                VoiceCommand.Pause
-            text.matches(Regex("^(play|sigue|contin[uú]a|continuar|reanuda|reproduce)$")) ->
-                VoiceCommand.Resume
-            text.matches(Regex("^(siguiente|next|skip|otra|adelanta)$")) ->
-                VoiceCommand.Next
-            text.matches(Regex("^(atr[aá]s|anterior|previous)$")) ->
-                VoiceCommand.Previous
-            text.matches(Regex("^(retrocede|rewind|diez segundos|10 segundos)$")) ->
-                VoiceCommand.Rewind
-            else -> {
-                val match = playPrefix.find(text) ?: return null
-                val query = match.groupValues[1].trim()
-                query.takeIf { it.isNotEmpty() }?.let { VoiceCommand.PlayQuery(it) }
-            }
+            exit.matches(text) -> VoiceCommand.Exit
+            queue.matches(text) -> VoiceCommand.Queue
+            shuffle.matches(text) -> VoiceCommand.Shuffle
+            repeatOne.matches(text) -> VoiceCommand.RepeatOne
+            repeatAll.matches(text) -> VoiceCommand.RepeatAll
+            next.matches(text) -> VoiceCommand.Next
+            previous.matches(text) -> VoiceCommand.Previous
+            pause.matches(text) -> VoiceCommand.Pause
+            play.matches(text) -> VoiceCommand.Play
+            else -> null
         }
     }
 }

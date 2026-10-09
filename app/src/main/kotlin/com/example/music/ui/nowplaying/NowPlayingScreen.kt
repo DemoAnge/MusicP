@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lyrics
@@ -32,14 +31,11 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
-import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.Lyrics
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -82,8 +78,7 @@ import com.example.music.ui.components.ThinSeekBar
 import com.example.music.ui.components.formatMs
 import com.example.music.ui.driving.sleepRemainingLabel
 import com.example.music.ui.voice.VoiceMicButton
-import com.example.music.ui.voice.rememberVoiceCapture
-import kotlin.math.abs
+import com.example.music.ui.voice.rememberActivityVoiceViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -99,14 +94,18 @@ fun NowPlayingScreen(
     val palette by viewModel.palette.collectAsStateWithLifecycle()
     val showLyrics by viewModel.showLyrics.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
-    val voiceStatus by viewModel.voiceStatus.collectAsStateWithLifecycle()
+    val voiceVm = rememberActivityVoiceViewModel()
+    val voiceUi by voiceVm.ui.collectAsStateWithLifecycle()
+    val openQueue by voiceVm.openQueue.collectAsStateWithLifecycle()
     var showQueue by remember { mutableStateOf(false) }
     var showSleep by remember { mutableStateOf(false) }
     val track = playerState.currentTrack
-    val voice = rememberVoiceCapture(
-        onTranscript = viewModel::onSpoken,
-        onStatus = viewModel::setVoiceStatus,
-    )
+    LaunchedEffect(openQueue) {
+        if (openQueue) {
+            showQueue = true
+            voiceVm.consumeOpenQueue()
+        }
+    }
 
     Box(
         modifier = modifier
@@ -142,7 +141,16 @@ fun NowPlayingScreen(
                     .fillMaxSize()
                     .padding(horizontal = 24.dp, vertical = 8.dp),
             ) {
-                CloseRow(onClose = onClose)
+                CloseRow(
+                    onClose = onClose,
+                    voice = {
+                        VoiceMicButton(
+                            state = voiceUi,
+                            onTap = voiceVm::onMicTapped,
+                            onPermissionDenied = voiceVm::onPermissionDenied,
+                        )
+                    },
+                )
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Elige una canción", style = MaterialTheme.typography.headlineSmall, color = OnBackground)
@@ -185,6 +193,11 @@ fun NowPlayingScreen(
                     )
                 }
                 Spacer(Modifier.weight(1f))
+                VoiceMicButton(
+                    state = voiceUi,
+                    onTap = voiceVm::onMicTapped,
+                    onPermissionDenied = voiceVm::onPermissionDenied,
+                )
                 IconButton(onClick = { showQueue = true }, modifier = Modifier.size(48.dp)) {
                     Icon(
                         Icons.AutoMirrored.Filled.QueueMusic,
@@ -239,9 +252,14 @@ fun NowPlayingScreen(
                     )
                 }
             } else {
-                Spacer(Modifier.height(8.dp))
-                AlbumArt(track = track, size = artSize)
-                Spacer(Modifier.weight(1f))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AlbumArt(track = track, size = artSize)
+                }
             }
 
             Spacer(Modifier.height(12.dp))
@@ -316,15 +334,10 @@ fun NowPlayingScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TransportIcon(
-                    imageVector = Icons.Filled.Replay10,
-                    contentDescription = "Retroceder 10 segundos",
-                    onClick = viewModel::rewind10,
-                )
-                TransportIcon(
                     imageVector = Icons.Filled.SkipPrevious,
                     contentDescription = "Anterior",
                     onClick = viewModel::skipPrevious,
-                    iconSize = 36.dp,
+                    iconSize = 40.dp,
                 )
                 IconButton(
                     onClick = viewModel::togglePlayPause,
@@ -344,12 +357,7 @@ fun NowPlayingScreen(
                     imageVector = Icons.Filled.SkipNext,
                     contentDescription = "Siguiente",
                     onClick = viewModel::skipNext,
-                    iconSize = 36.dp,
-                )
-                TransportIcon(
-                    imageVector = Icons.Filled.Forward10,
-                    contentDescription = "Adelantar 10 segundos",
-                    onClick = viewModel::forward10,
+                    iconSize = 40.dp,
                 )
             }
             Row(
@@ -388,13 +396,16 @@ fun NowPlayingScreen(
                     contentDescription = "Modo conducción",
                     onClick = onOpenDriving,
                 )
-                VoiceMicButton(capture = voice)
             }
-            HandsFreeExtras(
-                playerState = playerState,
-                voiceStatus = voiceStatus,
-                onSpeed = viewModel::setPlaybackSpeed,
-            )
+            SleepRemainingLabel(playerState = playerState)
+            if (voiceUi.prompt.isNotBlank()) {
+                Text(
+                    voiceUi.prompt,
+                    color = Accent,
+                    style = MaterialTheme.typography.labelLarge,
+                    textAlign = TextAlign.Center,
+                )
+            }
             Spacer(Modifier.height(8.dp))
         }
         }
@@ -420,11 +431,7 @@ fun NowPlayingScreen(
 }
 
 @Composable
-private fun HandsFreeExtras(
-    playerState: PlayerState,
-    voiceStatus: String?,
-    onSpeed: (Float) -> Unit,
-) {
+private fun SleepRemainingLabel(playerState: PlayerState) {
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(playerState.sleepEndsAtEpochMs) {
         val ends = playerState.sleepEndsAtEpochMs
@@ -441,37 +448,6 @@ private fun HandsFreeExtras(
     )
     if (sleepLabel != null) {
         Text(sleepLabel, color = Accent, style = MaterialTheme.typography.labelLarge)
-    }
-    if (!voiceStatus.isNullOrBlank()) {
-        Text(
-            voiceStatus,
-            color = Accent,
-            style = MaterialTheme.typography.bodySmall,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-    val isLocal = playerState.currentTrack?.source == PlaybackSource.LOCAL
-    if (isLocal) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            listOf(0.8f, 1.0f, 1.25f, 1.5f).forEach { speed ->
-                val selected = abs(playerState.playbackSpeed - speed) < 0.01f
-                FilterChip(
-                    selected = selected,
-                    onClick = { onSpeed(speed) },
-                    label = { Text(speedLabel(speed)) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Accent,
-                        selectedLabelColor = Color.White,
-                        labelColor = OnBackground,
-                    ),
-                )
-            }
-        }
     }
 }
 
@@ -498,13 +474,6 @@ private fun SleepTimerDialog(
     )
 }
 
-private fun speedLabel(speed: Float): String = when {
-    abs(speed - 1.0f) < 0.01f -> "1×"
-    abs(speed - 1.25f) < 0.01f -> "1.25×"
-    abs(speed - 0.8f) < 0.01f -> "0.8×"
-    else -> "1.5×"
-}
-
 private fun sleepOptionLabel(option: SleepOption): String = when (option) {
     SleepOption.OFF -> "Apagar"
     SleepOption.MINUTES_15 -> "15 minutos"
@@ -515,7 +484,10 @@ private fun sleepOptionLabel(option: SleepOption): String = when (option) {
 }
 
 @Composable
-private fun CloseRow(onClose: () -> Unit) {
+private fun CloseRow(
+    onClose: () -> Unit,
+    voice: @Composable () -> Unit = {},
+) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
             Icon(
@@ -525,6 +497,8 @@ private fun CloseRow(onClose: () -> Unit) {
                 modifier = Modifier.size(32.dp),
             )
         }
+        Spacer(Modifier.weight(1f))
+        voice()
     }
 }
 

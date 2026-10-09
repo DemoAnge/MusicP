@@ -92,7 +92,9 @@ class LocalPlayerService @Inject constructor(
                             mediaId = exoPlayer.currentMediaItem?.mediaId,
                         )
                     }
-                    if (playbackState == Player.STATE_ENDED && !exoPlayer.hasNextMediaItem()) {
+                    if (playbackState == Player.STATE_ENDED &&
+                        (!exoPlayer.hasNextMediaItem() || exoPlayer.pauseAtEndOfMediaItems)
+                    ) {
                         _ended.tryEmit(Unit)
                     }
                 }
@@ -214,6 +216,10 @@ class LocalPlayerService @Inject constructor(
         CrashGuard.run {
             exoPlayer.playbackParameters = androidx.media3.common.PlaybackParameters(clamped)
         }
+    }
+
+    fun setPauseAtEndOfMediaItems(pause: Boolean) {
+        CrashGuard.run { exoPlayer.pauseAtEndOfMediaItems = pause }
     }
 
     fun setRepeatMode(mode: RepeatMode) {

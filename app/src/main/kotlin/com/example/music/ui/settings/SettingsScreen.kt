@@ -15,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,7 +29,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.music.core.theme.ArtistGray
@@ -44,17 +48,20 @@ fun SettingsScreen(
 ) {
     val preferBrave by viewModel.preferBrave.collectAsStateWithLifecycle()
     val ignoredFolders by viewModel.ignoredFolders.collectAsStateWithLifecycle()
+    val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
     BackHandler(onBack = onBack)
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(Surface)
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState()),
+            .padding(horizontal = 16.dp),
     ) {
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             IconButton(onClick = onBack) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
@@ -62,8 +69,18 @@ fun SettingsScreen(
                     tint = OnBackground,
                 )
             }
-            Text("Ajustes", style = MaterialTheme.typography.headlineSmall, color = OnBackground)
+            Text(
+                "Ajustes",
+                style = MaterialTheme.typography.headlineSmall,
+                color = OnBackground,
+            )
         }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+        ) {
         Spacer(Modifier.height(16.dp))
         Text("Brave y YouTube", style = MaterialTheme.typography.titleMedium, color = OnBackground)
         Spacer(Modifier.height(8.dp))
@@ -109,11 +126,40 @@ fun SettingsScreen(
             Text("Reabrir puente en el navegador")
         }
         Spacer(Modifier.height(24.dp))
+        Text("Reproducción", style = MaterialTheme.typography.titleMedium, color = OnBackground)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Velocidad solo en música local (podcasts). YouTube en Brave sigue a 1×.",
+            color = ArtistGray,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            listOf(0.8f, 1.0f, 1.25f, 1.5f).forEach { speed ->
+                val selected = abs(playbackSpeed - speed) < 0.01f
+                FilterChip(
+                    selected = selected,
+                    onClick = { viewModel.setPlaybackSpeed(speed) },
+                    label = { Text(speedLabel(speed)) },
+                    modifier = Modifier.padding(end = 8.dp),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Accent,
+                        selectedLabelColor = Color.White,
+                        labelColor = OnBackground,
+                    ),
+                )
+            }
+        }
+        Spacer(Modifier.height(24.dp))
         Text("Manos libres", style = MaterialTheme.typography.titleMedium, color = OnBackground)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Modo conducción: tres botones grandes, pantalla encendida, voz. " +
-                "Temporizador de sueño y velocidad 0.8–1.5× están en Ahora suena (solo local).",
+            "Modo conducción: tres botones grandes y pantalla encendida. " +
+                "El micrófono de arriba pide la palabra «música» y luego órdenes; se apaga a los 15 s. " +
+                "El temporizador de sueño está en Ahora suena.",
             color = ArtistGray,
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -173,5 +219,13 @@ fun SettingsScreen(
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.height(24.dp))
+        }
     }
+}
+
+private fun speedLabel(speed: Float): String = when {
+    abs(speed - 1.0f) < 0.01f -> "1×"
+    abs(speed - 1.25f) < 0.01f -> "1.25×"
+    abs(speed - 0.8f) < 0.01f -> "0.8×"
+    else -> "1.5×"
 }

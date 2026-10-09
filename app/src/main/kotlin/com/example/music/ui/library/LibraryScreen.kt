@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
@@ -45,7 +46,6 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.QueuePlayNext
 import androidx.compose.material.icons.filled.Settings
@@ -68,7 +68,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -105,6 +104,7 @@ import com.example.music.domain.model.SortMode
 import com.example.music.domain.model.Track
 import com.example.music.domain.model.UserPlaylist
 import com.example.music.ui.components.AlbumArt
+import com.example.music.ui.components.MusicSnackbarHost
 import com.example.music.ui.components.PlayingBars
 import com.example.music.ui.components.formatBytes
 import com.example.music.ui.components.formatMs
@@ -198,8 +198,8 @@ fun LibraryScreen(
         viewModel.consumeNotice()
     }
 
-    BackHandler(enabled = ui.selecting || ui.selectedGroupKey != null) {
-        if (ui.selecting) viewModel.exitSelection() else viewModel.closeGroup()
+    BackHandler(enabled = ui.selecting || ui.pickingForPlaylist || ui.selectedGroupKey != null) {
+        if (ui.selecting || ui.pickingForPlaylist) viewModel.exitSelection() else viewModel.closeGroup()
     }
 
     val showSize = ui.sort == SortMode.SIZE_LARGE || ui.sort == SortMode.SIZE_SMALL
@@ -229,6 +229,14 @@ fun LibraryScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = when {
+                            ui.pickingForPlaylist -> {
+                                val n = ui.selectedIds.size
+                                when {
+                                    n == 0 -> "Agregar a ${ui.selectedGroupTitle ?: "la lista"}"
+                                    n == 1 -> "1 para agregar"
+                                    else -> "$n para agregar"
+                                }
+                            }
                             ui.selecting -> {
                                 val n = ui.selectedIds.size
                                 if (n == 0) "Seleccionar" else if (n == 1) "1 seleccionada" else "$n seleccionadas"
@@ -241,18 +249,52 @@ fun LibraryScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = if (ui.selecting) {
-                            "Toca para marcar. Se borran del teléfono."
-                        } else {
-                            ui.countLabel.ifBlank { "Música de este teléfono" }
+                        text = when {
+                            ui.pickingForPlaylist -> "Marca una o varias. No se copia el archivo."
+                            ui.selecting -> "Toca para marcar. Agrégalas a la cola o bórralas."
+                            else -> ui.countLabel.ifBlank { "Música de este teléfono" }
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = ArtistGray,
                     )
                 }
-                if (ui.selecting) {
+                if (ui.pickingForPlaylist) {
                     IconButton(onClick = viewModel::selectAllVisible) {
                         Icon(Icons.Filled.SelectAll, contentDescription = "Seleccionar todo", tint = OnBackground)
+                    }
+                    IconButton(
+                        onClick = viewModel::confirmAddSelectedToPlaylist,
+                        enabled = ui.selectedIds.isNotEmpty(),
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.PlaylistAdd,
+                            contentDescription = "Agregar a esta lista",
+                            tint = if (ui.selectedIds.isEmpty()) ArtistGray else Accent,
+                        )
+                    }
+                } else if (ui.selecting) {
+                    IconButton(onClick = viewModel::selectAllVisible) {
+                        Icon(Icons.Filled.SelectAll, contentDescription = "Seleccionar todo", tint = OnBackground)
+                    }
+                    IconButton(
+                        onClick = viewModel::playSelected,
+                        enabled = ui.selectedIds.isNotEmpty(),
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = "Reproducir seleccionadas",
+                            tint = if (ui.selectedIds.isEmpty()) ArtistGray else OnBackground,
+                        )
+                    }
+                    IconButton(
+                        onClick = viewModel::addSelectedToQueue,
+                        enabled = ui.selectedIds.isNotEmpty(),
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.PlaylistAdd,
+                            contentDescription = "Agregar a la cola de reproducción",
+                            tint = if (ui.selectedIds.isEmpty()) ArtistGray else OnBackground,
+                        )
                     }
                     IconButton(
                         onClick = { if (ui.selectedIds.isNotEmpty()) showDeleteConfirm = true },
@@ -266,6 +308,13 @@ fun LibraryScreen(
                     }
                 } else {
                     if (ui.selectedPlaylistId != null) {
+                        IconButton(onClick = viewModel::startAddToPlaylist) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.PlaylistAdd,
+                                contentDescription = "Agregar canciones",
+                                tint = OnBackground,
+                            )
+                        }
                         IconButton(onClick = { showDeletePlaylist = true }) {
                             Icon(Icons.Filled.Delete, contentDescription = "Eliminar lista", tint = DeleteRed)
                         }
@@ -286,7 +335,7 @@ fun LibraryScreen(
                     }
                 }
             }
-            if (showLockScreenBanner && !ui.selecting) {
+            if (showLockScreenBanner && !ui.selecting && !ui.pickingForPlaylist) {
                 Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier
@@ -307,7 +356,7 @@ fun LibraryScreen(
                     Text("Permitir", color = Accent, style = MaterialTheme.typography.labelLarge)
                 }
             }
-            if (!ui.selecting) {
+            if (!ui.selecting && !ui.pickingForPlaylist) {
                 Spacer(Modifier.height(8.dp))
                 BrowseChips(
                     selected = ui.browse,
@@ -364,20 +413,44 @@ fun LibraryScreen(
                         )
                     }
                     !ui.showingGroups && ui.visibleTracks.isEmpty() && !ui.isHome -> {
-                        val (title, body) = when (ui.browse) {
-                            BrowseMode.FAVORITES -> "Sin queridas" to "Toca el corazón de una canción para guardarla aquí."
-                            BrowseMode.RECENTS -> "Sin recientes" to "Las canciones que reproduzcas aparecerán en esta lista."
-                            BrowseMode.PLAYLISTS -> "Lista vacía" to "Agrega canciones desde el menú de tres puntos."
-                            else -> "Sin canciones" to "No hay canciones visibles. Descarga un archivo de audio al teléfono o ábrelo desde Descargas y pulsa actualizar."
+                        val (title, body, action) = when {
+                            ui.pickingForPlaylist -> Triple(
+                                "Nada nuevo que agregar",
+                                "Todas las canciones de este teléfono ya están en esta lista. No se copia ningún archivo.",
+                                "Cerrar",
+                            )
+                            ui.selectedPlaylistId != null -> Triple(
+                                "Lista vacía",
+                                "Agrega canciones de tu teléfono. Solo se guarda el orden de reproducción; no se copia ningún archivo.",
+                                "Agregar canciones",
+                            )
+                            ui.browse == BrowseMode.FAVORITES -> Triple(
+                                "Sin queridas",
+                                "Toca el corazón de una canción para guardarla aquí.",
+                                "Actualizar",
+                            )
+                            ui.browse == BrowseMode.RECENTS -> Triple(
+                                "Sin recientes",
+                                "Las canciones que reproduzcas aparecerán en esta lista.",
+                                "Actualizar",
+                            )
+                            else -> Triple(
+                                "Sin canciones",
+                                "No hay canciones visibles. Descarga un archivo de audio al teléfono o ábrelo desde Descargas y pulsa actualizar.",
+                                "Actualizar",
+                            )
                         }
                         EmptyMessage(
                             modifier = Modifier.fillMaxSize(),
                             title = title,
                             body = body,
-                            action = if (ui.browse == BrowseMode.PLAYLISTS) "Nueva lista" else "Actualizar",
+                            action = action,
                             onAction = {
-                                if (ui.browse == BrowseMode.PLAYLISTS) showCreatePlaylist = true
-                                else viewModel.loadTracks()
+                                when {
+                                    ui.pickingForPlaylist -> viewModel.exitSelection()
+                                    ui.selectedPlaylistId != null -> viewModel.startAddToPlaylist()
+                                    else -> viewModel.loadTracks()
+                                }
                             },
                         )
                     }
@@ -391,7 +464,7 @@ fun LibraryScreen(
                                 }
                                 Spacer(Modifier.height(8.dp))
                             }
-                            if (!ui.selecting && !ui.showingGroups && ui.selectedGroupKey != null) {
+                            if (!ui.selecting && !ui.pickingForPlaylist && !ui.showingGroups && ui.selectedGroupKey != null) {
                                 GroupHeader(
                                     title = ui.selectedGroupTitle.orEmpty(),
                                     subtitle = ui.selectedGroupSubtitle ?: ui.countLabel,
@@ -400,8 +473,23 @@ fun LibraryScreen(
                                     onPlay = viewModel::playAll,
                                     onShuffle = viewModel::shuffleAll,
                                 )
+                                if (ui.selectedPlaylistId != null) {
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedButton(
+                                        onClick = viewModel::startAddToPlaylist,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.PlaylistAdd,
+                                            contentDescription = null,
+                                            tint = Accent,
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Agregar canciones", color = OnBackground)
+                                    }
+                                }
                                 Spacer(Modifier.height(8.dp))
-                            } else if (!ui.selecting && !ui.showingGroups) {
+                            } else if (!ui.selecting && !ui.pickingForPlaylist && !ui.showingGroups) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = viewModel::playAll,
@@ -481,7 +569,7 @@ fun LibraryScreen(
                 }
             }
         }
-        SnackbarHost(
+        MusicSnackbarHost(
             hostState = snackbar,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -676,8 +764,8 @@ fun LibraryScreen(
         }
     }
 
-    if (playlistTrack != null && !showCreatePlaylist) {
-        val track = playlistTrack!!
+    val sheetTrack = playlistTrack
+    if (sheetTrack != null && !showCreatePlaylist) {
         ModalBottomSheet(
             onDismissRequest = { playlistTrack = null },
             containerColor = SurfaceElevated,
@@ -694,7 +782,7 @@ fun LibraryScreen(
                 }
                 ui.playlists.forEach { playlist ->
                     SheetAction(playlist.name) {
-                        viewModel.addToPlaylist(playlist.id, track.id)
+                        viewModel.addToPlaylist(playlist.id, sheetTrack.id)
                         playlistTrack = null
                     }
                 }

@@ -48,5 +48,6 @@ data class LibraryUiState(
     val countLabel: String = "",
     val selecting: Boolean = false,
     val selectedIds: Set<String> = emptySet(),
+    val pickingForPlaylist: Boolean = false,
     val refreshing: Boolean = false,
 )

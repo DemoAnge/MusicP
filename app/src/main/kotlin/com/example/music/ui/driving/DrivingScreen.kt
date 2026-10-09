@@ -46,7 +46,7 @@ import com.example.music.core.theme.Accent
 import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.OnBackground
 import com.example.music.ui.voice.VoiceMicButton
-import com.example.music.ui.voice.rememberVoiceCapture
+import com.example.music.ui.voice.rememberActivityVoiceViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -57,13 +57,10 @@ fun DrivingScreen(
     modifier: Modifier = Modifier,
 ) {
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
-    val voiceStatus by viewModel.voiceStatus.collectAsStateWithLifecycle()
     val track = playerState.currentTrack
     val view = LocalView.current
-    val capture = rememberVoiceCapture(
-        onTranscript = viewModel::onSpoken,
-        onStatus = viewModel::setVoiceStatus,
-    )
+    val voiceVm = rememberActivityVoiceViewModel()
+    val voiceUi by voiceVm.ui.collectAsStateWithLifecycle()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     BackHandler(onBack = onClose)
@@ -100,7 +97,22 @@ fun DrivingScreen(
                 )
             }
             Spacer(Modifier.weight(1f))
-            VoiceMicButton(capture = capture, size = 56.dp, iconSize = 32.dp)
+            VoiceMicButton(
+                state = voiceUi,
+                onTap = voiceVm::onMicTapped,
+                onPermissionDenied = voiceVm::onPermissionDenied,
+                size = 56.dp,
+                iconSize = 32.dp,
+            )
+        }
+        if (voiceUi.prompt.isNotBlank()) {
+            Text(
+                voiceUi.prompt,
+                color = Accent,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+            )
         }
         val sleepLabel = sleepRemainingLabel(
             endsAt = playerState.sleepEndsAtEpochMs,
@@ -131,17 +143,6 @@ fun DrivingScreen(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth(),
         )
-        if (!voiceStatus.isNullOrBlank()) {
-            Spacer(Modifier.height(16.dp))
-            Text(
-                text = voiceStatus.orEmpty(),
-                color = Accent,
-                fontSize = 20.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
         Spacer(Modifier.weight(1f))
         Row(
             modifier = Modifier

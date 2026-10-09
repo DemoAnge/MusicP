@@ -10,6 +10,8 @@ import java.net.SocketTimeoutException
 import java.nio.charset.Charset
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import org.json.JSONArray
@@ -21,7 +23,7 @@ class LocalBridgeServer(
     private val onClientMessage: (JSONObject) -> Unit,
 ) {
     private val commands = ConcurrentLinkedQueue<String>()
-    private val waiters = CopyOnWriteArrayList<Object>()
+    private val waiters = CopyOnWriteArrayList<CountDownLatch>()
     private val running = AtomicBoolean(false)
     val connected = AtomicBoolean(false)
     private var server: ServerSocket? = null
@@ -60,9 +62,7 @@ class LocalBridgeServer(
     }
 
     private fun wakePoll() {
-        waiters.forEach { waiter ->
-            synchronized(waiter) { waiter.notifyAll() }
-        }
+        waiters.forEach { it.countDown() }
         waiters.clear()
     }
 
@@ -114,12 +114,10 @@ class LocalBridgeServer(
             method == "GET" && uri == "/poll" -> {
                 connected.set(true)
                 if (commands.isEmpty()) {
-                    val lock = Object()
-                    waiters.add(lock)
-                    synchronized(lock) {
-                        runCatching { lock.wait(2_000) }
-                    }
-                    waiters.remove(lock)
+                    val latch = CountDownLatch(1)
+                    waiters.add(latch)
+                    runCatching { latch.await(2, TimeUnit.SECONDS) }
+                    waiters.remove(latch)
                 }
                 val batch = JSONArray()
                 while (true) {

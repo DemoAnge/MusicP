@@ -1,55 +1,43 @@
 package com.example.music.domain.usecase
 
+import com.example.music.domain.model.RepeatMode
 import com.example.music.domain.model.VoiceCommand
 import com.example.music.domain.model.VoiceCommandParser
+import com.example.music.domain.model.VoiceResult
 import javax.inject.Inject
 
 class HandleVoiceCommandUseCase @Inject constructor(
-    private val searchTracks: SearchTracksUseCase,
-    private val searchYouTube: SearchYouTubeUseCase,
-    private val playTrack: PlayTrackUseCase,
     private val controls: ControlPlaybackUseCase,
+    private val observePlayerState: ObservePlayerStateUseCase,
 ) {
-    suspend operator fun invoke(spoken: String): String {
-        val command = VoiceCommandParser.parse(spoken) ?: return "No entendí. Prueba: pausa, siguiente, pon Queen."
+    operator fun invoke(spoken: String): VoiceResult {
+        val command = VoiceCommandParser.parse(spoken)
+            ?: return VoiceResult("No entendí. Di play, pausa, siguiente, cola…")
+        val playing = observePlayerState().value
         return when (command) {
-            VoiceCommand.Pause -> {
-                controls.pause()
-                "Pausa"
+            VoiceCommand.Play -> {
+                if (playing.currentTrack == null) VoiceResult("Nada en reproducción")
+                else run("Play") { controls.resume() }
             }
-            VoiceCommand.Resume -> {
-                controls.resume()
-                "Reproduciendo"
+            VoiceCommand.Pause -> run("Pausa") { controls.pause() }
+            VoiceCommand.Next -> run("Siguiente") { controls.skipNext() }
+            VoiceCommand.Previous -> run("Anterior") { controls.skipPrevious() }
+            VoiceCommand.Shuffle -> {
+                val next = !playing.isShuffleEnabled
+                run(if (next) "Mezclar" else "Mezclar off") { controls.setShuffle(next) }
             }
-            VoiceCommand.Next -> {
-                controls.skipNext()
-                "Siguiente"
-            }
-            VoiceCommand.Previous -> {
-                controls.skipPrevious()
-                "Anterior"
-            }
-            VoiceCommand.Rewind -> {
-                controls.seekBy(-10_000L)
-                "Atrás 10 segundos"
-            }
-            is VoiceCommand.PlayQuery -> playQuery(command.query)
+            VoiceCommand.RepeatOne -> run("Repetir 1") { controls.setRepeat(RepeatMode.ONE) }
+            VoiceCommand.RepeatAll -> run("Repetir todos") { controls.setRepeat(RepeatMode.ALL) }
+            VoiceCommand.Queue -> VoiceResult("Cola", openQueue = true)
+            VoiceCommand.Exit -> VoiceResult("Salir", exit = true)
         }
     }
 
-    private suspend fun playQuery(query: String): String {
-        val local = runCatching { searchTracks(query) }.getOrNull()
-        val track = local?.songs?.firstOrNull()
-            ?: local?.artists?.firstOrNull()?.tracks?.firstOrNull()
-            ?: local?.albums?.firstOrNull()?.tracks?.firstOrNull()
-        if (track != null) {
-            val queue = local?.songs?.ifEmpty { listOf(track) } ?: listOf(track)
-            runCatching { playTrack(track, queue) }
-            return "Reproduciendo ${track.title}"
-        }
-        val youtube = runCatching { searchYouTube(query) }.getOrDefault(emptyList())
-            .ifEmpty { listOf(searchYouTube.placeholder(query)) }
-        runCatching { playTrack(youtube.first(), youtube) }
-        return "Buscando en YouTube: $query"
+    private fun run(message: String, block: () -> Unit): VoiceResult {
+        return runCatching { block() }
+            .fold(
+                onSuccess = { VoiceResult(message) },
+                onFailure = { VoiceResult("No se pudo") },
+            )
     }
 }

@@ -14,8 +14,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,8 +38,8 @@ import com.example.music.domain.model.PlayerState
 fun MiniPlayer(
     playerState: PlayerState,
     onTogglePlay: () -> Unit,
+    onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
-    onRewind: () -> Unit,
     onSeek: (Long) -> Unit,
     onOpenNowPlaying: () -> Unit,
     modifier: Modifier = Modifier,
@@ -93,8 +93,8 @@ fun MiniPlayer(
                     )
                 }
             }
-            IconButton(onClick = onRewind, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Filled.Replay10, contentDescription = "Retroceder 10 segundos", tint = OnBackground)
+            IconButton(onClick = onSkipPrevious, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Filled.SkipPrevious, contentDescription = "Anterior", tint = OnBackground)
             }
             IconButton(
                 onClick = onTogglePlay,
