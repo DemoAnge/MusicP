@@ -137,6 +137,12 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch { runCatching { playTrack(track, queue) } }
     }
 
+    fun playNext(track: Track) {
+        if (track.isVideo) return
+        controls.playNext(track)
+        _notice.value = "Se reproducirá a continuación"
+    }
+
     fun playAll() {
         val list = uiState.value.visibleTracks.ifEmpty { allTracks.value.filter { !it.isVideo } }
         if (list.isEmpty()) return

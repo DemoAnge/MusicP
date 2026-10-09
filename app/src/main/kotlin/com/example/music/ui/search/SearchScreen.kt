@@ -91,6 +91,7 @@ fun SearchScreen(
                             isCurrent = isCurrent,
                             isPlaying = isCurrent && playerState.isPlaying,
                             onClick = { viewModel.play(track) },
+                            onPlayNext = { viewModel.playNext(track) },
                         )
                     }
                 }

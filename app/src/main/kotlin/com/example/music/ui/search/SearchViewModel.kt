@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.Track
-import com.example.music.domain.usecase.GetLocalTracksUseCase
+import com.example.music.domain.usecase.ControlPlaybackUseCase
 import com.example.music.domain.usecase.ObservePlayerStateUseCase
 import com.example.music.domain.usecase.PlayTrackUseCase
 import com.example.music.domain.usecase.SearchTracksUseCase
@@ -22,9 +22,9 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val searchTracks: SearchTracksUseCase,
-    private val getLocalTracks: GetLocalTracksUseCase,
     observePlayerState: ObservePlayerStateUseCase,
     private val playTrack: PlayTrackUseCase,
+    private val controls: ControlPlaybackUseCase,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -52,10 +52,13 @@ class SearchViewModel @Inject constructor(
 
     fun play(track: Track) {
         viewModelScope.launch {
-            val library = runCatching { getLocalTracks.refresh() }.getOrDefault(_results.value)
-                .filter { !it.isVideo }
-            val queue = if (library.any { it.id == track.id }) library else _results.value.filter { !it.isVideo }
+            val queue = _results.value.filter { !it.isVideo }
             runCatching { playTrack(track, queue) }
         }
+    }
+
+    fun playNext(track: Track) {
+        if (track.isVideo) return
+        controls.playNext(track)
     }
 }

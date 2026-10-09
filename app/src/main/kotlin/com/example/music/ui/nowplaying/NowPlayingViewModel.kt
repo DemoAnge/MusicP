@@ -106,6 +106,10 @@ class NowPlayingViewModel @Inject constructor(
         controls.setRepeat(playerState.value.repeatMode.next())
     }
 
+    fun playQueueIndex(index: Int) = controls.playQueueIndex(index)
+    fun removeFromQueue(trackId: String) = controls.removeFromQueue(setOf(trackId))
+    fun moveInQueue(fromIndex: Int, toIndex: Int) = controls.moveInQueue(fromIndex, toIndex)
+
     private suspend fun extractPalette(artworkUri: String?): List<Color> = withContext(Dispatchers.IO) {
         if (artworkUri.isNullOrBlank()) return@withContext listOf(Background, Surface)
         val bitmap = decodeBitmap(artworkUri) ?: return@withContext listOf(Background, Surface)

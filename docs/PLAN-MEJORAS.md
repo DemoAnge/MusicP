@@ -167,7 +167,7 @@ Cada fase es entregable, testeable y no depende de las posteriores. Criterio de 
 
 **Aceptación:** se conduce la reproducción local desde Now Playing, mini player, notificación y widget sin pelear con el Back ni con las letras.
 
-### Fase 2 — Cola, sesión y gapless local
+### Fase 2 — Cola, sesión y gapless local ✅
 **Objetivo:** el reproductor se comporta como un player de verdad.
 
 - Sheet de cola: ver, reordenar, quitar, “reproducir a continuación”.
@@ -175,6 +175,8 @@ Cada fase es entregable, testeable y no depende de las posteriores. Criterio de 
 - Pasar la cola a Media3 (`setMediaItems`) para transiciones gapless.
 - `PlayerCoordinator` deja de recargar un solo `MediaItem` por skip.
 - Play desde búsqueda: cola = resultados (o biblioteca filtrada), no toda la librería si no hace falta.
+
+**Hecho.** Cola en ExoPlayer (`setMediaItems`); skip busca el índice sin recrear el player. Sesión en DataStore (se restaura en pausa al reabrir). Sheet de cola en Now Playing; “reproducir a continuación” en biblioteca y búsqueda. Play desde búsqueda usa los resultados como cola.
 
 **Aceptación:** matas la app y reanudas; skip entre pistas locales sin silencio largo; la cola se edita en UI.
 

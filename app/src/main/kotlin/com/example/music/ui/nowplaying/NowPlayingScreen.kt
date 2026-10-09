@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Pause
@@ -41,6 +42,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -79,6 +83,7 @@ fun NowPlayingScreen(
     val palette by viewModel.palette.collectAsStateWithLifecycle()
     val showLyrics by viewModel.showLyrics.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
+    var showQueue by remember { mutableStateOf(false) }
     val track = playerState.currentTrack
 
     Box(
@@ -158,6 +163,13 @@ fun NowPlayingScreen(
                     )
                 }
                 Spacer(Modifier.weight(1f))
+                IconButton(onClick = { showQueue = true }, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.QueueMusic,
+                        contentDescription = "Cola",
+                        tint = OnBackground,
+                    )
+                }
                 IconButton(
                     onClick = viewModel::toggleLyrics,
                     modifier = Modifier.size(48.dp),
@@ -313,6 +325,15 @@ fun NowPlayingScreen(
             }
             Spacer(Modifier.height(8.dp))
         }
+        }
+        if (showQueue) {
+            QueueSheet(
+                playerState = playerState,
+                onDismiss = { showQueue = false },
+                onPlayIndex = viewModel::playQueueIndex,
+                onRemove = viewModel::removeFromQueue,
+                onMove = viewModel::moveInQueue,
+            )
         }
     }
 }

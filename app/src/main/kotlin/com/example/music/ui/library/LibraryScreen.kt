@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.QueuePlayNext
 import androidx.compose.material.icons.filled.Shuffle
 
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
@@ -376,6 +377,7 @@ fun LibraryScreen(
                                         else viewModel.startSelection(track.id)
                                     },
                                     onToggleFavorite = { viewModel.toggleLiked(track.id) },
+                                    onPlayNext = { viewModel.playNext(track) },
                                 )
                             }
                         }
@@ -604,6 +606,7 @@ fun TrackRow(
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onToggleFavorite: (() -> Unit)? = null,
+    onPlayNext: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -655,6 +658,18 @@ fun TrackRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (!selecting && onPlayNext != null) {
+            IconButton(
+                onClick = onPlayNext,
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.QueuePlayNext,
+                    contentDescription = "Reproducir a continuación",
+                    tint = ArtistGray,
+                )
+            }
         }
         if (!selecting && onToggleFavorite != null) {
             IconButton(

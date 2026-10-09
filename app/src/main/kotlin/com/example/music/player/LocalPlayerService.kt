@@ -14,9 +14,12 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.music.core.CrashGuard
 import com.example.music.data.local_music.EmbeddedArtwork
+import com.example.music.domain.model.RepeatMode
 import com.example.music.domain.model.Track
-import java.io.File
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,8 +35,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
 @Singleton
 class LocalPlayerService @Inject constructor(
@@ -49,6 +50,7 @@ class LocalPlayerService @Inject constructor(
         )
         .setHandleAudioBecomingNoisy(true)
         .setWakeMode(C.WAKE_MODE_LOCAL)
+        .setPauseAtEndOfMediaItems(false)
         .build()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -63,6 +65,7 @@ class LocalPlayerService @Inject constructor(
     val failed: SharedFlow<String> = _failed.asSharedFlow()
 
     private var positionJob: Job? = null
+    private var queuedTracks: List<Track> = emptyList()
 
     init {
         exoPlayer.addListener(object : Player.Listener {
@@ -81,10 +84,33 @@ class LocalPlayerService @Inject constructor(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 CrashGuard.run {
                     val duration = runCatching { exoPlayer.duration }.getOrDefault(0L).takeIf { it > 0 } ?: 0L
-                    _engineState.update { it.copy(durationMs = duration) }
-                    if (playbackState == Player.STATE_ENDED) {
+                    _engineState.update {
+                        it.copy(
+                            durationMs = duration,
+                            mediaIndex = exoPlayer.currentMediaItemIndex,
+                            mediaId = exoPlayer.currentMediaItem?.mediaId,
+                        )
+                    }
+                    if (playbackState == Player.STATE_ENDED && !exoPlayer.hasNextMediaItem()) {
                         _ended.tryEmit(Unit)
                     }
+                }
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                CrashGuard.run {
+                    val index = exoPlayer.currentMediaItemIndex
+                    _engineState.update {
+                        it.copy(
+                            mediaIndex = index,
+                            mediaId = mediaItem?.mediaId,
+                            positionMs = runCatching { exoPlayer.currentPosition }.getOrDefault(0L).coerceAtLeast(0L),
+                            durationMs = runCatching { exoPlayer.duration }.getOrDefault(0L).takeIf { d -> d > 0 }
+                                ?: queuedTracks.getOrNull(index)?.durationMs
+                                ?: it.durationMs,
+                        )
+                    }
+                    queuedTracks.getOrNull(index)?.let(::enrichArtwork)
                 }
             }
 
@@ -95,41 +121,132 @@ class LocalPlayerService @Inject constructor(
         })
     }
 
-    fun play(track: Track) {
-        val mediaUri = track.mediaUri.takeIf { it.isNotBlank() } ?: return
-        val parsed = runCatching { Uri.parse(mediaUri) }.getOrNull() ?: return
+    fun setQueue(
+        tracks: List<Track>,
+        startIndex: Int,
+        startPositionMs: Long = 0L,
+        playWhenReady: Boolean = true,
+    ) {
+        if (tracks.isEmpty()) {
+            stop()
+            return
+        }
+        queuedTracks = tracks
+        val index = startIndex.coerceIn(0, tracks.lastIndex)
+        val items = tracks.map { it.toMediaItem() }
         try {
-            val artwork = track.artworkUri
-                ?.takeIf { it.isNotBlank() && it != "0" && !it.endsWith("/albumart/0") }
-                ?.let { runCatching { Uri.parse(it) }.getOrNull() }
-            val metadata = MediaMetadata.Builder()
-                .setTitle(track.title)
-                .setArtist(track.artist)
-                .setAlbumTitle(track.album)
-                .setArtworkUri(artwork)
-                .build()
-            val item = MediaItem.Builder()
-                .setUri(parsed)
-                .setMediaId(track.id)
-                .setMimeType(track.mimeType)
-                .setMediaMetadata(metadata)
-                .build()
-            exoPlayer.setMediaItem(item)
+            exoPlayer.setMediaItems(items, index, startPositionMs.coerceAtLeast(0L))
             exoPlayer.prepare()
-            exoPlayer.play()
+            if (playWhenReady) {
+                exoPlayer.play()
+                startPlaybackService()
+            } else {
+                exoPlayer.pause()
+            }
             _engineState.update {
                 it.copy(
-                    isPlaying = true,
-                    positionMs = 0L,
-                    durationMs = track.durationMs,
+                    isPlaying = playWhenReady,
+                    positionMs = startPositionMs.coerceAtLeast(0L),
+                    durationMs = tracks[index].durationMs,
+                    mediaIndex = index,
+                    mediaId = tracks[index].id,
                 )
             }
-            CrashGuard.run { startPlaybackService() }
-            enrichArtwork(track)
+            enrichArtwork(tracks[index])
         } catch (t: Throwable) {
             _engineState.update { it.copy(isPlaying = false) }
             _failed.tryEmit(t.message ?: "No se pudo reproducir")
         }
+    }
+
+    fun seekToIndex(index: Int, play: Boolean = true) {
+        val count = exoPlayer.mediaItemCount
+        if (count <= 0) return
+        val safe = index.coerceIn(0, count - 1)
+        CrashGuard.run {
+            exoPlayer.seekTo(safe, 0L)
+            if (play) {
+                exoPlayer.play()
+                startPlaybackService()
+            }
+            _engineState.update {
+                it.copy(
+                    mediaIndex = safe,
+                    mediaId = exoPlayer.getMediaItemAt(safe).mediaId,
+                    positionMs = 0L,
+                    isPlaying = play || exoPlayer.isPlaying,
+                    durationMs = queuedTracks.getOrNull(safe)?.durationMs ?: it.durationMs,
+                )
+            }
+        }
+    }
+
+    fun addMediaItems(tracks: List<Track>, index: Int) {
+        if (tracks.isEmpty()) return
+        val safeIndex = index.coerceIn(0, queuedTracks.size)
+        queuedTracks = queuedTracks.toMutableList().apply { addAll(safeIndex, tracks) }
+        CrashGuard.run { exoPlayer.addMediaItems(safeIndex, tracks.map { it.toMediaItem() }) }
+    }
+
+    fun removeMediaItem(index: Int) {
+        if (index !in queuedTracks.indices) return
+        queuedTracks = queuedTracks.toMutableList().apply { removeAt(index) }
+        CrashGuard.run { exoPlayer.removeMediaItem(index) }
+        if (queuedTracks.isEmpty()) stop()
+    }
+
+    fun moveMediaItem(fromIndex: Int, toIndex: Int) {
+        if (fromIndex !in queuedTracks.indices) return
+        val target = toIndex.coerceIn(0, queuedTracks.lastIndex)
+        if (fromIndex == target) return
+        queuedTracks = queuedTracks.toMutableList().apply {
+            add(target, removeAt(fromIndex))
+        }
+        CrashGuard.run { exoPlayer.moveMediaItem(fromIndex, target) }
+        _engineState.update {
+            it.copy(mediaIndex = exoPlayer.currentMediaItemIndex, mediaId = exoPlayer.currentMediaItem?.mediaId)
+        }
+    }
+
+    fun setRepeatMode(mode: RepeatMode) {
+        CrashGuard.run {
+            exoPlayer.repeatMode = when (mode) {
+                RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+                RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+                RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+            }
+        }
+    }
+
+    fun canPlay(track: Track): Boolean {
+        if (track.mediaUri.isBlank()) return false
+        val uri = runCatching { Uri.parse(track.mediaUri) }.getOrNull() ?: return false
+        return when (uri.scheme) {
+            "file" -> uri.path?.let { path -> File(path).exists() } == true
+            "content" -> runCatching {
+                context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length != 0L } == true
+            }.getOrDefault(false)
+            else -> true
+        }
+    }
+
+    private fun Track.toMediaItem(): MediaItem {
+        val parsed = runCatching { Uri.parse(mediaUri) }.getOrNull() ?: Uri.EMPTY
+        val artwork = artworkUri
+            ?.takeIf { it.isNotBlank() && it != "0" && !it.endsWith("/albumart/0") }
+            ?.let { runCatching { Uri.parse(it) }.getOrNull() }
+        val metadata = MediaMetadata.Builder()
+            .setTitle(title)
+            .setArtist(artist)
+            .setAlbumTitle(album)
+            .setArtworkUri(artwork)
+            .build()
+        return MediaItem.Builder()
+            .setUri(parsed)
+            .setMediaId(id)
+            .setMimeType(mimeType)
+            .setMediaMetadata(metadata)
+            .build()
     }
 
     private fun enrichArtwork(track: Track) {
@@ -190,7 +307,9 @@ class LocalPlayerService @Inject constructor(
     }
 
     fun stop() {
+        queuedTracks = emptyList()
         CrashGuard.run { exoPlayer.stop() }
+        CrashGuard.run { exoPlayer.clearMediaItems() }
         _engineState.value = EngineState()
     }
 
@@ -208,6 +327,8 @@ class LocalPlayerService @Inject constructor(
                             positionMs = runCatching { exoPlayer.currentPosition }.getOrDefault(0L).coerceAtLeast(0L),
                             durationMs = runCatching { exoPlayer.duration }.getOrDefault(0L).takeIf { d -> d > 0 }
                                 ?: it.durationMs,
+                            mediaIndex = exoPlayer.currentMediaItemIndex,
+                            mediaId = exoPlayer.currentMediaItem?.mediaId ?: it.mediaId,
                         )
                     }
                 }

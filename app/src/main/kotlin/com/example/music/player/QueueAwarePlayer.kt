@@ -5,7 +5,8 @@ import androidx.media3.common.Player
 
 /**
  * Expone play/pausa y saltos a la notificación y a la pantalla de bloqueo.
- * La cola vive en [PlayerCoordinator], no en el ExoPlayer.
+ * Skip pasa por [PlayerCoordinator] (rewind si >3 s, wrap al final).
+ * La cola también está en ExoPlayer para gapless.
  */
 class QueueAwarePlayer(
     player: Player,
