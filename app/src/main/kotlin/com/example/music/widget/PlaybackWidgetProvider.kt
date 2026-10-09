@@ -77,9 +77,9 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
-        const val ACTION_TOGGLE = "com.example.music.widget.TOGGLE"
-        const val ACTION_NEXT = "com.example.music.widget.NEXT"
-        const val ACTION_PREVIOUS = "com.example.music.widget.PREVIOUS"
+        const val ACTION_TOGGLE = "com.dmusic.widget.TOGGLE"
+        const val ACTION_NEXT = "com.dmusic.widget.NEXT"
+        const val ACTION_PREVIOUS = "com.dmusic.widget.PREVIOUS"
 
         fun updateAll(context: Context, state: PlayerState) {
             runCatching {

@@ -46,9 +46,6 @@ class LocalMusicRepositoryImpl @Inject constructor(
         runCatching {
             resolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, observer)
         }
-        runCatching {
-            resolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, observer)
-        }
         if (Build.VERSION.SDK_INT >= 29) {
             runCatching {
                 resolver.registerContentObserver(MediaStore.Downloads.EXTERNAL_CONTENT_URI, true, observer)

@@ -267,10 +267,10 @@ class MusicPlaybackService : MediaSessionService() {
     private companion object {
         const val CHANNEL_ID = "music_playback_controls"
         const val NOTIFICATION_ID = 1001
-        const val ACTION_PLAY = "com.example.music.action.PLAY"
-        const val ACTION_PAUSE = "com.example.music.action.PAUSE"
-        const val ACTION_TOGGLE = "com.example.music.action.TOGGLE"
-        const val ACTION_NEXT = "com.example.music.action.NEXT"
-        const val ACTION_PREVIOUS = "com.example.music.action.PREVIOUS"
+        const val ACTION_PLAY = "com.dmusic.action.PLAY"
+        const val ACTION_PAUSE = "com.dmusic.action.PAUSE"
+        const val ACTION_TOGGLE = "com.dmusic.action.TOGGLE"
+        const val ACTION_NEXT = "com.dmusic.action.NEXT"
+        const val ACTION_PREVIOUS = "com.dmusic.action.PREVIOUS"
     }
 }

@@ -53,7 +53,8 @@ class SearchViewModel @Inject constructor(
     fun play(track: Track) {
         viewModelScope.launch {
             val library = runCatching { getLocalTracks.refresh() }.getOrDefault(_results.value)
-            val queue = if (library.any { it.id == track.id }) library else _results.value
+                .filter { !it.isVideo }
+            val queue = if (library.any { it.id == track.id }) library else _results.value.filter { !it.isVideo }
             runCatching { playTrack(track, queue) }
         }
     }

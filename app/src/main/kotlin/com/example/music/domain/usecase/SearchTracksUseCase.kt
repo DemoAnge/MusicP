@@ -10,6 +10,6 @@ class SearchTracksUseCase @Inject constructor(
     suspend operator fun invoke(query: String): List<Track> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return emptyList()
-        return localMusicRepository.search(trimmed)
+        return localMusicRepository.search(trimmed).filter { !it.isVideo }
     }
 }

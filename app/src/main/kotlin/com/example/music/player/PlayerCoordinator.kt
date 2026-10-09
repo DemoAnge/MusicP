@@ -158,6 +158,10 @@ class PlayerCoordinator @Inject constructor(
         }
     }
 
+    override fun clearError() {
+        _state.update { it.copy(errorMessage = null) }
+    }
+
     override fun release() {
         // El ExoPlayer es singleton: soltarlo cortaría la música en segundo plano.
     }

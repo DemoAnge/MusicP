@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -15,11 +14,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,8 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.OnBackground
-import com.example.music.core.theme.SeekInactive
-import com.example.music.core.theme.SpotifyGreen
+import com.example.music.core.theme.Accent
 import com.example.music.core.theme.SurfaceElevated
 import com.example.music.domain.model.PlayerState
 
@@ -41,65 +38,65 @@ fun MiniPlayer(
     playerState: PlayerState,
     onTogglePlay: () -> Unit,
     onSkipNext: () -> Unit,
-    onSkipPrevious: () -> Unit,
+    onRewind: () -> Unit,
+    onSeek: (Long) -> Unit,
     onOpenNowPlaying: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val track = playerState.currentTrack ?: return
-    val progress = if (playerState.durationMs > 0) {
-        (playerState.positionMs.toFloat() / playerState.durationMs.toFloat()).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(SurfaceElevated)
-            .clickable(onClick = onOpenNowPlaying),
+            .background(SurfaceElevated),
     ) {
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(2.dp),
-            color = SpotifyGreen,
-            trackColor = SeekInactive,
+        ThinSeekBar(
+            positionMs = playerState.positionMs,
+            durationMs = playerState.durationMs,
+            onSeek = onSeek,
+            modifier = Modifier.padding(horizontal = 10.dp),
         )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(start = 10.dp, end = 4.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            AlbumArt(track = track, size = 48.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = track.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = OnBackground,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = track.artist,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = ArtistGray,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClick = onOpenNowPlaying),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AlbumArt(track = track, size = 48.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = track.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = OnBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = track.artist,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = ArtistGray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-            IconButton(onClick = onSkipPrevious) {
-                Icon(Icons.Filled.SkipPrevious, contentDescription = "Anterior", tint = OnBackground)
+            IconButton(onClick = onRewind, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Filled.Replay10, contentDescription = "Retroceder 10 segundos", tint = OnBackground)
             }
             IconButton(
                 onClick = onTogglePlay,
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
-                    .background(SpotifyGreen),
+                    .background(Accent),
             ) {
                 Icon(
                     imageVector = if (playerState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
@@ -107,7 +104,7 @@ fun MiniPlayer(
                     tint = Color.White,
                 )
             }
-            IconButton(onClick = onSkipNext) {
+            IconButton(onClick = onSkipNext, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Filled.SkipNext, contentDescription = "Siguiente", tint = OnBackground)
             }
         }

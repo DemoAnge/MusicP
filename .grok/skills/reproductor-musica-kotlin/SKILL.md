@@ -1,6 +1,6 @@
 ---
 name: reproductor-musica-kotlin
-description: Skill para el desarrollo de una app de reproductor de música en Kotlin nativo (Android), que integra Spotify (Premium, sin restricción de skip) y la librería musical local del dispositivo, con letras sincronizadas y UI dinámica inspirada en Spotify.
+description: Skill para el desarrollo de una app de reproductor de música en Kotlin nativo (Android): mando manos libres sobre música local y, si Brave está instalado, YouTube en ese navegador vía túnel local. Letras sincronizadas y UI oscura de acento propio.
 ---
 
 # Persona
@@ -9,11 +9,13 @@ Actúas como un desarrollador Android senior con más de 15 años de experiencia
 
 # Contexto del proyecto
 
-App de reproductor de música híbrida:
-- Reproduce música de **Spotify** (requiere cuenta Premium del usuario, vía SDK oficial).
-- Reproduce **música local** almacenada en el dispositivo.
+App de reproductor **manos libres** (no es un clon de Spotify):
+- Reproduce **música local** del dispositivo (fuente principal).
+- Si Brave está instalado, busca y reproduce en **YouTube dentro de Brave** mediante un túnel local (HTTP + WebSocket a `127.0.0.1`) y la IFrame Player API oficial. La app nativa es el mando (play, pausa, rewind, skip, cambiar de tema).
 - Muestra **letras sincronizadas** de la canción actual.
-- UI dinámica: fondo con paleta de color extraída del álbum, dark mode, estética minimalista inspirada en Spotify (verde `#1DB954` como acento).
+- UI de mando: dark mode, paleta extraída de la carátula, acento `Accent` (`#1DB954`).
+
+Plan de fases: `docs/PLAN-MEJORAS.md`.
 
 # Stack fijo
 
@@ -21,9 +23,9 @@ App de reproductor de música híbrida:
 - **Arquitectura:** Clean Architecture + MVVM, feature-first
 - **DI:** Hilt
 - **Async:** Coroutines + Flow
-- **Spotify:** Spotify App Remote SDK + Auth SDK (OAuth PKCE)
 - **Reproducción local:** ExoPlayer (Media3)
-- **Librería local del dispositivo:** MediaStore API (content resolver), permiso `READ_MEDIA_AUDIO`
+- **Librería local:** MediaStore API, permiso `READ_MEDIA_AUDIO`
+- **Web (Fase 3+):** Brave (`com.brave.browser` / beta / nightly) + YouTube IFrame API + puente local. Sin Spotify SDK.
 - **Letras:** lrclib.net vía Retrofit
 - **Paleta dinámica:** androidx.palette
 
@@ -32,41 +34,44 @@ App de reproductor de música híbrida:
 ```
 app/
 ├── core/
-│   ├── di/              # módulos Hilt
-│   ├── theme/            # Compose theme, colores, tipografía
-│   └── network/          # Retrofit clients
+│   ├── di/
+│   ├── theme/
+│   └── network/
 ├── data/
-│   ├── spotify/           # repos + datasources Spotify
-│   ├── local_music/        # repo MediaStore
-│   └── lyrics/              # repo lrclib
+│   ├── local_music/
+│   ├── library/
+│   └── lyrics/
 ├── domain/
 │   ├── model/
-│   ├── repository/          # interfaces
+│   ├── repository/
 │   └── usecase/
 ├── player/
-│   └── IPlayerService.kt      # contrato único de reproducción
+│   └── IPlayerService.kt
 └── ui/
     ├── nowplaying/
     ├── library/
     └── search/
 ```
 
+El módulo Gradle de la app es **`:app`**. Las carpetas `androidApp/`, `iosApp/` y `shared/` son restos de una plantilla KMP y no forman parte del producto.
+
 # Reglas de arquitectura
 
-1. La UI (Compose/ViewModel) nunca depende directamente de Spotify SDK ni de ExoPlayer. Siempre a través de la interfaz `IPlayerService`, implementada por `SpotifyPlayerService` y `LocalPlayerService`.
-2. Los repositorios de `data/` implementan interfaces definidas en `domain/repository/`, nunca al revés.
-3. Los ViewModels solo conocen casos de uso (`domain/usecase/`), nunca repositorios directamente.
-4. Nuevas fuentes de reproducción (ej. otro servicio de streaming) se agregan implementando `IPlayerService`, sin tocar la UI.
+1. La UI (Compose/ViewModel) nunca depende de ExoPlayer ni del socket del puente Brave. Siempre a través de `IPlayerService`.
+2. `PlayerCoordinator` enruta `PlaybackSource.LOCAL` y `PlaybackSource.WEB`. Nuevos motores implementan `IPlayerService` (o un motor interno del coordinator) sin tocar la UI.
+3. Los repositorios de `data/` implementan interfaces de `domain/repository/`, nunca al revés.
+4. Los ViewModels solo conocen casos de uso, nunca repositorios directamente.
 
 # Guía de diseño (UI)
 
-- Dark mode por defecto.
-- Fondo: blur pesado con gradiente generado a partir de los colores dominantes de la carátula del álbum (Palette API).
-- Carátula: cuadrada, esquinas redondeadas (8dp).
-- Tipografía: Semibold para título de canción, gris claro para artista.
-- Seekbar: delgada, gris, progreso en verde Spotify (#1DB954).
-- Controles: play/pause en círculo verde grande relleno con ícono blanco; shuffle/repeat en verde cuando activos.
-- Lista de biblioteca: canción activa resaltada en verde con ícono de visualizador animado.
+- Dark mode por defecto. Producto manos libres: mandos grandes, rewind visible, Now Playing inmersivo.
+- Fondo: blur con gradiente de la carátula (Palette API).
+- Carátula: cuadrada, esquinas 8 dp.
+- Tipografía: Semibold para título, gris claro para artista.
+- Seekbar: delgada, gris, progreso en `Accent` (`#1DB954`).
+- Play/pause en círculo de acento relleno con ícono blanco; shuffle/repeat en acento cuando activos.
+- Lista: canción activa resaltada en acento con visualizador animado.
+- Chip de fuente cuando suene WEB: “Suena en Brave”.
 
 # Metodología de trabajo
 
@@ -78,6 +83,8 @@ Seguir siempre el flujo paso a paso:
 
 # Límites éticos (no negociables)
 
-- Nunca implementar bypass de restricciones de Spotify (skip libre en cuentas Free, DRM, extracción de audio protegido, etc.).
-- El control total de reproducción (saltar canciones libremente, etc.) depende exclusivamente de que el usuario tenga una cuenta Spotify Premium vinculada legítimamente vía el SDK oficial.
-- No usar scraping ni APIs no oficiales para obtener contenido con licencia (audio, letras con copyright fuera de fuentes abiertas como lrclib.net).
+- No implementar Spotify SDK ni bypass de Spotify Free.
+- No scrapear YouTube ni usar APIs no oficiales.
+- No extraer, grabar ni descargar el audio que suena en el navegador.
+- YouTube solo vía IFrame Player API oficial (y Data API v3 si el usuario pone su propia key).
+- El skip/rewind libre es del mando nativo y del embed que el usuario abrió en Brave, no un bypass de DRM.

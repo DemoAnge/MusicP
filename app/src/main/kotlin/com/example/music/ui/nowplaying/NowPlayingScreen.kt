@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,13 +20,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.outlined.Lyrics
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,10 +47,13 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.min
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
@@ -50,7 +61,7 @@ import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.Background
 import com.example.music.core.theme.OnBackground
 import com.example.music.core.theme.SeekTrack
-import com.example.music.core.theme.SpotifyGreen
+import com.example.music.core.theme.Accent
 import com.example.music.domain.model.LyricsLine
 import com.example.music.domain.model.RepeatMode
 import com.example.music.ui.components.AlbumArt
@@ -60,11 +71,14 @@ import com.example.music.ui.components.formatMs
 @Composable
 fun NowPlayingScreen(
     viewModel: NowPlayingViewModel = hiltViewModel(),
+    onClose: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
     val lyrics by viewModel.lyrics.collectAsStateWithLifecycle()
     val palette by viewModel.palette.collectAsStateWithLifecycle()
+    val showLyrics by viewModel.showLyrics.collectAsStateWithLifecycle()
+    val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val track = playerState.currentTrack
 
     Box(
@@ -96,25 +110,81 @@ fun NowPlayingScreen(
         )
 
         if (track == null) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Elige una canción en tu biblioteca", color = ArtistGray)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+            ) {
+                CloseRow(onClose = onClose)
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Elige una canción", style = MaterialTheme.typography.headlineSmall, color = OnBackground)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Ábrela desde tu biblioteca. El mini reproductor te trae de vuelta aquí.",
+                            color = ArtistGray,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
             }
             return@Box
         }
 
+        val lines = lyrics?.lines.orEmpty()
+        val plain = lyrics?.plainText
+        val hasLyrics = lines.isNotEmpty() || !plain.isNullOrBlank()
+        val lyricsOpen = showLyrics && hasLyrics
+
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val artSize = if (lyricsOpen) 120.dp else min(260.dp, maxHeight * 0.38f)
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+                .padding(horizontal = 24.dp, vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.height(8.dp))
-            AlbumArt(track = track, size = 240.dp)
-            val lines = lyrics?.lines.orEmpty()
-            val plain = lyrics?.plainText
-            val hasLyrics = lines.isNotEmpty() || !plain.isNullOrBlank()
-            if (hasLyrics) {
-                Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        Icons.Filled.KeyboardArrowDown,
+                        contentDescription = "Cerrar",
+                        tint = OnBackground,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                IconButton(
+                    onClick = viewModel::toggleLyrics,
+                    modifier = Modifier.size(48.dp),
+                    enabled = hasLyrics,
+                ) {
+                    Icon(
+                        imageVector = if (lyricsOpen) Icons.Filled.Lyrics else Icons.Outlined.Lyrics,
+                        contentDescription = if (lyricsOpen) "Ocultar letra" else "Mostrar letra",
+                        tint = when {
+                            lyricsOpen -> Accent
+                            hasLyrics -> OnBackground
+                            else -> ArtistGray
+                        },
+                    )
+                }
+                IconButton(onClick = viewModel::toggleLiked, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                        contentDescription = if (isFavorite) "Quitar de queridas" else "Marcar como querida",
+                        tint = if (isFavorite) Accent else OnBackground,
+                    )
+                }
+            }
+
+            if (lyricsOpen) {
+                AlbumArt(track = track, size = artSize)
+                Spacer(Modifier.height(8.dp))
                 if (lines.isNotEmpty()) {
                     SyncedLyricsView(
                         lines = lines,
@@ -134,7 +204,12 @@ fun NowPlayingScreen(
                             .verticalScroll(rememberScrollState()),
                     )
                 }
+            } else {
+                Spacer(Modifier.height(8.dp))
+                AlbumArt(track = track, size = artSize)
+                Spacer(Modifier.weight(1f))
             }
+
             Spacer(Modifier.height(12.dp))
             Text(
                 text = track.title,
@@ -159,10 +234,8 @@ fun NowPlayingScreen(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (!hasLyrics) {
-                Spacer(Modifier.weight(1f))
-            }
 
+            Spacer(Modifier.height(8.dp))
             ThinSeekBar(
                 positionMs = playerState.positionMs,
                 durationMs = playerState.durationMs,
@@ -173,33 +246,29 @@ fun NowPlayingScreen(
                 Text(formatMs(playerState.durationMs), color = SeekTrack, style = MaterialTheme.typography.labelMedium)
             }
 
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = viewModel::toggleShuffle) {
-                    Icon(
-                        Icons.Filled.Shuffle,
-                        contentDescription = "Aleatorio",
-                        tint = if (playerState.isShuffleEnabled) SpotifyGreen else OnBackground,
-                    )
-                }
-                IconButton(onClick = viewModel::skipPrevious) {
-                    Icon(
-                        Icons.Filled.SkipPrevious,
-                        contentDescription = "Anterior",
-                        tint = OnBackground,
-                        modifier = Modifier.size(44.dp),
-                    )
-                }
+                TransportIcon(
+                    imageVector = Icons.Filled.Replay10,
+                    contentDescription = "Retroceder 10 segundos",
+                    onClick = viewModel::rewind10,
+                )
+                TransportIcon(
+                    imageVector = Icons.Filled.SkipPrevious,
+                    contentDescription = "Anterior",
+                    onClick = viewModel::skipPrevious,
+                    iconSize = 36.dp,
+                )
                 IconButton(
                     onClick = viewModel::togglePlayPause,
                     modifier = Modifier
                         .size(72.dp)
                         .clip(CircleShape)
-                        .background(SpotifyGreen),
+                        .background(Accent),
                 ) {
                     Icon(
                         imageVector = if (playerState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
@@ -208,24 +277,75 @@ fun NowPlayingScreen(
                         modifier = Modifier.size(40.dp),
                     )
                 }
-                IconButton(onClick = viewModel::skipNext) {
-                    Icon(
-                        Icons.Filled.SkipNext,
-                        contentDescription = "Siguiente",
-                        tint = OnBackground,
-                        modifier = Modifier.size(44.dp),
-                    )
-                }
-                IconButton(onClick = viewModel::cycleRepeat) {
-                    Icon(
-                        imageVector = if (playerState.repeatMode == RepeatMode.ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
-                        contentDescription = "Repetir",
-                        tint = if (playerState.repeatMode == RepeatMode.OFF) OnBackground else SpotifyGreen,
-                    )
-                }
+                TransportIcon(
+                    imageVector = Icons.Filled.SkipNext,
+                    contentDescription = "Siguiente",
+                    onClick = viewModel::skipNext,
+                    iconSize = 36.dp,
+                )
+                TransportIcon(
+                    imageVector = Icons.Filled.Forward10,
+                    contentDescription = "Adelantar 10 segundos",
+                    onClick = viewModel::forward10,
+                )
             }
-            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TransportIcon(
+                    imageVector = Icons.Filled.Shuffle,
+                    contentDescription = "Aleatorio",
+                    onClick = viewModel::toggleShuffle,
+                    tint = if (playerState.isShuffleEnabled) Accent else OnBackground,
+                )
+                TransportIcon(
+                    imageVector = if (playerState.repeatMode == RepeatMode.ONE) {
+                        Icons.Filled.RepeatOne
+                    } else {
+                        Icons.Filled.Repeat
+                    },
+                    contentDescription = "Repetir",
+                    onClick = viewModel::cycleRepeat,
+                    tint = if (playerState.repeatMode == RepeatMode.OFF) OnBackground else Accent,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
         }
+        }
+    }
+}
+
+@Composable
+private fun CloseRow(onClose: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
+            Icon(
+                Icons.Filled.KeyboardArrowDown,
+                contentDescription = "Cerrar",
+                tint = OnBackground,
+                modifier = Modifier.size(32.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun TransportIcon(
+    imageVector: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    tint: Color = OnBackground,
+    iconSize: Dp = 28.dp,
+) {
+    IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+        Icon(
+            imageVector = imageVector,
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier.size(iconSize),
+        )
     }
 }
 
@@ -248,7 +368,7 @@ private fun SyncedLyricsView(
         itemsIndexed(lines) { index, line ->
             Text(
                 text = line.text,
-                color = if (index == currentIndex) SpotifyGreen else ArtistGray.copy(alpha = 0.7f),
+                color = if (index == currentIndex) Accent else ArtistGray.copy(alpha = 0.7f),
                 style = if (index == currentIndex) {
                     MaterialTheme.typography.titleMedium
                 } else {

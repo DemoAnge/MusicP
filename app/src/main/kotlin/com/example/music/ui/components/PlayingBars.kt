@@ -18,7 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.example.music.core.theme.SpotifyGreen
+import com.example.music.core.theme.Accent
 
 @Composable
 fun PlayingBars(modifier: Modifier = Modifier) {
@@ -43,7 +43,7 @@ fun PlayingBars(modifier: Modifier = Modifier) {
                 modifier = Modifier
                     .width(3.dp)
                     .height(16.dp * height)
-                    .background(SpotifyGreen, RoundedCornerShape(1.dp)),
+                    .background(Accent, RoundedCornerShape(1.dp)),
             )
         }
     }

@@ -133,18 +133,18 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun play(track: Track) {
-        val queue = uiState.value.visibleTracks.ifEmpty { allTracks.value }
+        val queue = uiState.value.visibleTracks.ifEmpty { allTracks.value.filter { !it.isVideo } }
         viewModelScope.launch { runCatching { playTrack(track, queue) } }
     }
 
     fun playAll() {
-        val list = uiState.value.visibleTracks.ifEmpty { allTracks.value }
+        val list = uiState.value.visibleTracks.ifEmpty { allTracks.value.filter { !it.isVideo } }
         if (list.isEmpty()) return
         viewModelScope.launch { runCatching { playTrack(list.first(), list) } }
     }
 
     fun shuffleAll() {
-        val list = uiState.value.visibleTracks.ifEmpty { allTracks.value }
+        val list = uiState.value.visibleTracks.ifEmpty { allTracks.value.filter { !it.isVideo } }
         if (list.isEmpty()) return
         runCatching { controls.setShuffle(true) }
         viewModelScope.launch { runCatching { playTrack(list.random(), list) } }
@@ -257,17 +257,17 @@ class LibraryViewModel @Inject constructor(
         recents: List<String>,
         filter: Filters,
     ): LibraryUiState {
-        val sortedAll = sortTracks(tracks, filter.sort)
+        val songs = sortTracks(tracks.filter { !it.isVideo }, filter.sort)
         return when (filter.browse) {
             BrowseMode.SONGS -> LibraryUiState(
                 browse = filter.browse,
                 sort = filter.sort,
-                visibleTracks = sortedAll,
+                visibleTracks = songs,
                 favoriteIds = favorites,
-                countLabel = countLabel(sortedAll),
+                countLabel = countLabel(songs),
             )
             BrowseMode.FAVORITES -> {
-                val liked = sortTracks(tracks.filter { it.id in favorites }, filter.sort)
+                val liked = sortTracks(tracks.filter { it.id in favorites && !it.isVideo }, filter.sort)
                 LibraryUiState(
                     browse = filter.browse,
                     sort = filter.sort,
@@ -277,7 +277,7 @@ class LibraryViewModel @Inject constructor(
                 )
             }
             BrowseMode.RECENTS -> {
-                val byId = tracks.associateBy { it.id }
+                val byId = tracks.filter { !it.isVideo }.associateBy { it.id }
                 val played = recents.mapNotNull { byId[it] }
                 val visible = if (filter.sort == SortMode.TITLE) played else sortTracks(played, filter.sort)
                 LibraryUiState(
@@ -293,7 +293,7 @@ class LibraryViewModel @Inject constructor(
             BrowseMode.ALBUMS,
             -> {
                 val groups = when (filter.browse) {
-                    BrowseMode.FOLDERS -> groupTracks(sortedAll, { it.folderPath.ifBlank { "Otras" } }) { first, list ->
+                    BrowseMode.FOLDERS -> groupTracks(songs, { it.folderPath.ifBlank { "Otras" } }) { first, list ->
                         LibraryGroup(
                             key = first.folderPath.ifBlank { "Otras" },
                             title = first.folderName.ifBlank { "Otras" },
@@ -302,7 +302,7 @@ class LibraryViewModel @Inject constructor(
                             tracks = list,
                         )
                     }
-                    BrowseMode.ARTISTS -> groupTracks(sortedAll, { it.artist }) { first, list ->
+                    BrowseMode.ARTISTS -> groupTracks(songs, { it.artist }) { first, list ->
                         LibraryGroup(
                             key = first.artist,
                             title = first.artist,
@@ -311,7 +311,7 @@ class LibraryViewModel @Inject constructor(
                             tracks = list,
                         )
                     }
-                    else -> groupTracks(sortedAll, { "${it.artist}\u0000${it.album}" }) { first, list ->
+                    else -> groupTracks(songs, { "${it.artist}\u0000${it.album}" }) { first, list ->
                         LibraryGroup(
                             key = "${first.artist}\u0000${first.album}",
                             title = first.album,
@@ -369,11 +369,7 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    private fun countLabel(tracks: List<Track>): String {
-        val videos = tracks.count { it.isVideo }
-        return if (videos == 0) "${tracks.size} canciones"
-        else "${tracks.size - videos} canciones · $videos vídeos"
-    }
+    private fun countLabel(tracks: List<Track>): String = "${tracks.size} canciones"
 }
 
 sealed interface LibraryEvent {

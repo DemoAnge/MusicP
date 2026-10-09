@@ -6,9 +6,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val DarkColors = darkColorScheme(
-    primary = SpotifyGreen,
+    primary = Accent,
     onPrimary = Color.White,
-    secondary = SpotifyGreen,
+    secondary = Accent,
     background = Background,
     onBackground = OnBackground,
     surface = Surface,

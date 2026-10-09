@@ -27,7 +27,6 @@ navigation = "2.9.8"
 okhttp = "4.12.0"
 palette = "1.0.0"
 retrofit = "3.0.0"
-spotify-auth = "5.0.0"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -87,10 +86,6 @@ gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 # Carátulas
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
-
-# Spotify Auth SDK (Maven Central). App Remote no está en Maven:
-# se añadirá como AAR local oficial cuando conectemos SpotifyPlayerService.
-spotify-auth = { group = "com.spotify.android", name = "auth", version.ref = "spotify-auth" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

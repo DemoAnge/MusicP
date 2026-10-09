@@ -25,4 +25,7 @@ class PlayerBarViewModel @Inject constructor(
     fun togglePlayPause() = controls.togglePlayPause()
     fun skipNext() = controls.skipNext()
     fun skipPrevious() = controls.skipPrevious()
+    fun seekTo(positionMs: Long) = controls.seekTo(positionMs)
+    fun rewind10() = controls.seekBy(-10_000L)
+    fun clearError() = controls.clearError()
 }

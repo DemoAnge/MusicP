@@ -12,7 +12,7 @@ android {
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.example.music"
+        applicationId = "com.dmusic"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
@@ -28,6 +28,8 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -52,18 +54,32 @@ kotlin {
     }
 }
 
+val releaseApk = layout.buildDirectory.file("outputs/apk/release/app-release.apk")
+val namedApk = layout.buildDirectory.file("outputs/apk/release/music.apk")
+val rootApk = rootProject.layout.projectDirectory.file("music.apk")
+
+tasks.configureEach {
+    if (name != "assembleRelease") return@configureEach
+    val fromApk = releaseApk
+    val toNamed = namedApk
+    val toRoot = rootApk
+    doLast {
+        val apk = fromApk.get().asFile
+        if (apk.exists()) {
+            apk.copyTo(toNamed.get().asFile, overwrite = true)
+            apk.copyTo(toRoot.asFile, overwrite = true)
+        }
+    }
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.androidx.compose.ui.tooling.preview)
-    debugImplementation(libs.androidx.compose.ui.tooling)
 
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.google.material)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
@@ -76,15 +92,12 @@ dependencies {
     ksp(libs.hilt.compiler)
 
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.kotlinx.coroutines.core)
 
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.session)
-    implementation(libs.media3.common)
     implementation(libs.androidx.media)
 
     implementation(libs.okhttp)
-    implementation(libs.okhttp.logging)
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.gson)

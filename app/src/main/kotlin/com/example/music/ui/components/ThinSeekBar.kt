@@ -24,7 +24,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.music.core.theme.SeekInactive
-import com.example.music.core.theme.SpotifyGreen
+import com.example.music.core.theme.Accent
 import kotlin.math.roundToInt
 
 @Composable
@@ -86,7 +86,7 @@ fun ThinSeekBar(
                 .fillMaxWidth(fraction)
                 .height(2.dp)
                 .clip(RoundedCornerShape(1.dp))
-                .background(SpotifyGreen),
+                .background(Accent),
         )
         Box(
             modifier = Modifier
@@ -96,7 +96,7 @@ fun ThinSeekBar(
                 }
                 .size(10.dp)
                 .clip(CircleShape)
-                .background(SpotifyGreen),
+                .background(Accent),
         )
     }
 }

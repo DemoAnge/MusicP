@@ -26,7 +26,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.OnBackground
-import com.example.music.core.theme.SpotifyGreen
+import com.example.music.core.theme.Accent
 import com.example.music.core.theme.Surface
 import com.example.music.core.theme.SurfaceElevated
 import com.example.music.ui.library.TrackRow
@@ -57,13 +57,13 @@ fun SearchScreen(
             singleLine = true,
             shape = RoundedCornerShape(8.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = SpotifyGreen,
+                focusedBorderColor = Accent,
                 unfocusedBorderColor = SurfaceElevated,
                 focusedContainerColor = SurfaceElevated,
                 unfocusedContainerColor = SurfaceElevated,
                 focusedTextColor = OnBackground,
                 unfocusedTextColor = OnBackground,
-                cursorColor = SpotifyGreen,
+                cursorColor = Accent,
                 focusedPlaceholderColor = ArtistGray,
                 unfocusedPlaceholderColor = ArtistGray,
             ),

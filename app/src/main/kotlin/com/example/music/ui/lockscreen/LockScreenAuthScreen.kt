@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.Background
 import com.example.music.core.theme.OnBackground
-import com.example.music.core.theme.SpotifyGreen
+import com.example.music.core.theme.Accent
 import com.example.music.core.theme.Surface
 import com.example.music.core.theme.SurfaceElevated
 
@@ -77,7 +77,7 @@ fun LockScreenAuthScreen(
             onClick = onAllow,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(
-                containerColor = SpotifyGreen,
+                containerColor = Accent,
                 contentColor = Color.White,
             ),
         ) {
@@ -165,7 +165,7 @@ private fun PlaybackButtons(compact: Boolean = false) {
             modifier = Modifier
                 .size(play)
                 .clip(CircleShape)
-                .background(SpotifyGreen),
+                .background(Accent),
             contentAlignment = Alignment.Center,
         ) {
             Icon(

@@ -26,10 +26,10 @@ class MediaStoreDataSource @Inject constructor(
 ) {
     fun loadTracks(): List<Track> {
         return runCatching {
-            val tracks = mutableListOf<Track>()
-            runCatching { tracks += queryAudio() }
-            runCatching { tracks += queryVideo() }
-            tracks.distinctBy { it.mediaUri }.sortedBy { it.title.lowercase() }
+            queryAudio()
+                .filter { !it.isVideo }
+                .distinctBy { it.mediaUri }
+                .sortedBy { it.title.lowercase() }
         }.getOrDefault(emptyList())
     }
 
@@ -116,7 +116,7 @@ class MediaStoreDataSource @Inject constructor(
     private fun loadFromUriInternal(uri: Uri, mimeHint: String?): Track {
         val mime = mimeHint?.takeIf { it.isNotBlank() && it != "*/*" }
             ?: runCatching { context.contentResolver.getType(uri) }.getOrNull()
-        val isVideo = mime?.startsWith("video/") == true
+        val isVideo = isVideoFile(mime, queryDisplayName(uri), uri.path, uri.toString())
         val displayName = queryDisplayName(uri)
         val storeTrack = runCatching { findInMediaStore(uri) }.getOrNull()
         if (storeTrack != null) {
@@ -191,6 +191,7 @@ class MediaStoreDataSource @Inject constructor(
                     val duration = cursor.lng(MediaStore.Audio.Media.DURATION)
                     val dataPath = if (Build.VERSION.SDK_INT < 29) cursor.str(MediaStore.MediaColumns.DATA) else null
                     val (folderPath, folderName) = folderOf(relativePath, dataPath)
+                    val video = isVideoFile(mime, displayName, dataPath, uri.toString())
                     val track = Track(
                         id = "local-a-$id",
                         title = rawTitle.orEmpty(),
@@ -201,14 +202,15 @@ class MediaStoreDataSource @Inject constructor(
                         mediaUri = uri.toString(),
                         source = PlaybackSource.LOCAL,
                         mimeType = mime,
-                        isVideo = false,
+                        isVideo = video,
                         folderPath = folderPath,
                         folderName = folderName,
                         dateAddedEpochSec = cursor.lng(MediaStore.Audio.Media.DATE_ADDED),
                         sizeBytes = cursor.lng(MediaStore.MediaColumns.SIZE),
                     )
                     val fromDoVimu = isFromDoVimu(relativePath, displayName)
-                    val enriched = enrich(track, uri, isVideo = false, displayName, relativePath, albumId)
+                    val enriched = enrich(track, uri, isVideo = video, displayName, relativePath, albumId)
+                    if (enriched.isVideo) return@runCatching
                     if (enriched.durationMs >= 1000L || isFromDownloads(relativePath, displayName) || fromDoVimu) {
                         result += enriched
                     }
@@ -247,6 +249,7 @@ class MediaStoreDataSource @Inject constructor(
                     val duration = cursor.lng(MediaStore.Video.Media.DURATION)
                     val dataPath = if (Build.VERSION.SDK_INT < 29) cursor.str(MediaStore.MediaColumns.DATA) else null
                     val (folderPath, folderName) = folderOf(relativePath, dataPath)
+                    val video = isVideoFile(mime ?: "video/*", displayName, dataPath, uri.toString())
                     val track = Track(
                         id = "local-v-$id",
                         title = rawTitle.orEmpty(),
@@ -257,14 +260,14 @@ class MediaStoreDataSource @Inject constructor(
                         mediaUri = uri.toString(),
                         source = PlaybackSource.LOCAL,
                         mimeType = mime ?: "video/*",
-                        isVideo = true,
+                        isVideo = video,
                         folderPath = folderPath,
                         folderName = folderName,
                         dateAddedEpochSec = cursor.lng(MediaStore.Video.Media.DATE_ADDED),
                         sizeBytes = cursor.lng(MediaStore.MediaColumns.SIZE),
                     )
                     val fromDoVimu = isFromDoVimu(relativePath, displayName)
-                    val enriched = enrich(track, uri, isVideo = true, displayName, relativePath, albumId = 0L)
+                    val enriched = enrich(track, uri, isVideo = video, displayName, relativePath, albumId = 0L)
                     if (enriched.durationMs >= 1000L || isFromDownloads(relativePath, displayName) || fromDoVimu) {
                         result += enriched
                     }
@@ -284,12 +287,12 @@ class MediaStoreDataSource @Inject constructor(
     ): Track {
         val fromDownloads = isFromDownloads(relativePath, displayName)
         var duration = track.durationMs
-        // No asignar carátula de álbum compartida: cada archivo trae la suya (se resuelve al pintar).
+        val classifiedVideo = isVideo || isVideoFile(track.mimeType, displayName, uri.path, track.mediaUri)
         var artwork: String? = null
 
         val needsMetadata = duration <= 0L && pretty(track.title) == null
         val embedded = if (needsMetadata) {
-            readEmbedded(uri, isVideo, readPicture = false)
+            readEmbedded(uri, classifiedVideo, readPicture = false)
         } else {
             Embedded()
         }
@@ -313,7 +316,7 @@ class MediaStoreDataSource @Inject constructor(
             album = display.album,
             durationMs = duration.coerceAtLeast(0L),
             artworkUri = artwork,
-            isVideo = isVideo,
+            isVideo = classifiedVideo,
             embeddedLyrics = embedded.lyrics,
         )
     }
@@ -354,23 +357,24 @@ class MediaStoreDataSource @Inject constructor(
             val itemUri = ContentUris.withAppendedId(collection, id)
             val dataPath = if (Build.VERSION.SDK_INT < 29) cursor.str(MediaStore.MediaColumns.DATA) else null
             val (folderPath, folderName) = folderOf(relativePath, dataPath)
+            val classifiedVideo = isVideoFile(mime, displayName, dataPath, itemUri.toString())
             val draft = Track(
-                id = if (isVideo) "local-v-$id" else "local-a-$id",
+                id = if (classifiedVideo) "local-v-$id" else "local-a-$id",
                 title = cursor.str(titleCol).orEmpty(),
                 artist = cursor.str(artistCol).orEmpty(),
                 album = cursor.str(albumCol).orEmpty(),
                 durationMs = cursor.lng(durationCol),
-                artworkUri = if (isVideo) null else albumArtUri(albumId),
+                artworkUri = if (classifiedVideo) null else albumArtUri(albumId),
                 mediaUri = itemUri.toString(),
                 source = PlaybackSource.LOCAL,
                 mimeType = mime,
-                isVideo = isVideo,
+                isVideo = classifiedVideo,
                 folderPath = folderPath,
                 folderName = folderName,
                 dateAddedEpochSec = cursor.lng(MediaStore.MediaColumns.DATE_ADDED),
                 sizeBytes = cursor.lng(MediaStore.MediaColumns.SIZE),
             )
-            return enrich(draft, itemUri, isVideo, displayName, relativePath, albumId)
+            return enrich(draft, itemUri, classifiedVideo, displayName, relativePath, albumId)
         }
         return null
     }
@@ -610,6 +614,41 @@ class MediaStoreDataSource @Inject constructor(
             val artist: String,
             val album: String,
         )
+
+        private val audioExtensions = setOf(
+            "mp3", "m4a", "aac", "flac", "ogg", "oga", "opus", "wav", "wma",
+            "amr", "aiff", "aif", "mid", "midi",
+        )
+        private val videoExtensions = setOf(
+            "mp4", "mkv", "webm", "avi", "mov", "m4v", "mpeg", "mpg",
+            "flv", "wmv", "3gp", "3gpp", "ts", "m2ts", "vob", "mpe",
+        )
+
+        fun fileExtension(displayName: String?, dataPath: String?, mediaUri: String?): String {
+            val raw = sequenceOf(displayName, dataPath, mediaUri)
+                .mapNotNull { it?.substringAfterLast('/')?.substringAfterLast('\\') }
+                .firstOrNull { it.contains('.') }
+                .orEmpty()
+            return raw.substringAfterLast('.', missingDelimiterValue = "")
+                .substringBefore('?')
+                .substringBefore('#')
+                .lowercase()
+        }
+
+        fun isVideoFile(
+            mime: String?,
+            displayName: String?,
+            dataPath: String?,
+            mediaUri: String?,
+        ): Boolean {
+            val ext = fileExtension(displayName, dataPath, mediaUri)
+            if (ext in audioExtensions) return false
+            val mimeLower = mime?.lowercase().orEmpty()
+            if (mimeLower.startsWith("video/")) return true
+            if (ext in videoExtensions) return true
+            if (mediaUri.orEmpty().contains("/video/", ignoreCase = true)) return true
+            return false
+        }
 
         fun folderOf(relativePath: String?, dataPath: String?): Pair<String, String> {
             val fromRelative = relativePath?.trim()?.trimEnd('/')

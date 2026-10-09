@@ -77,7 +77,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.OnBackground
-import com.example.music.core.theme.SpotifyGreen
+import com.example.music.core.theme.Accent
 import com.example.music.core.theme.Surface
 import com.example.music.core.theme.SurfaceElevated
 import com.example.music.domain.model.BrowseMode
@@ -107,10 +107,7 @@ fun LibraryScreen(
 
     val mediaPermissions = remember {
         if (Build.VERSION.SDK_INT >= 33) {
-            listOf(
-                Manifest.permission.READ_MEDIA_AUDIO,
-                Manifest.permission.READ_MEDIA_VIDEO,
-            )
+            listOf(Manifest.permission.READ_MEDIA_AUDIO)
         } else {
             buildList {
                 add(Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -125,6 +122,7 @@ fun LibraryScreen(
     }
 
     var hasPermission by remember { mutableStateOf(granted()) }
+    var permissionAsked by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -146,7 +144,12 @@ fun LibraryScreen(
     }
 
     LaunchedEffect(hasPermission) {
-        if (hasPermission) viewModel.loadTracks() else requestPermissions()
+        if (hasPermission) {
+            viewModel.loadTracks()
+        } else if (!permissionAsked) {
+            permissionAsked = true
+            requestPermissions()
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -213,7 +216,7 @@ fun LibraryScreen(
                         text = if (ui.selecting) {
                             "Toca para marcar. Se borran del teléfono."
                         } else {
-                            ui.countLabel.ifBlank { "Música y vídeo de este teléfono" }
+                            ui.countLabel.ifBlank { "Música de este teléfono" }
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = ArtistGray,
@@ -258,7 +261,7 @@ fun LibraryScreen(
                         modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("Permitir", color = SpotifyGreen, style = MaterialTheme.typography.labelLarge)
+                    Text("Permitir", color = Accent, style = MaterialTheme.typography.labelLarge)
                 }
             }
             if (!ui.selecting) {
@@ -275,7 +278,7 @@ fun LibraryScreen(
                     EmptyMessage(
                         modifier = Modifier.weight(1f),
                         title = "Permiso de audio",
-                        body = "Para armar tu biblioteca necesitamos acceso al audio y al vídeo de este teléfono, incluida la carpeta Descargas.",
+                        body = "Para armar tu biblioteca necesitamos acceso a la música de este teléfono, incluida la carpeta Descargas.",
                         action = "Conceder permiso",
                         onAction = { requestPermissions() },
                     )
@@ -284,7 +287,7 @@ fun LibraryScreen(
                     EmptyMessage(
                         modifier = Modifier.weight(1f),
                         title = "Sin resultados",
-                        body = "No hay audio ni vídeo visibles. Descarga un archivo al teléfono o ábrelo desde Descargas y pulsa actualizar.",
+                        body = "No hay canciones visibles. Descarga un archivo de audio al teléfono o ábrelo desde Descargas y pulsa actualizar.",
                         action = "Actualizar",
                         onAction = { viewModel.loadTracks() },
                     )
@@ -293,7 +296,7 @@ fun LibraryScreen(
                     val (title, body) = when (ui.browse) {
                         BrowseMode.FAVORITES -> "Sin queridas" to "Toca el corazón de una canción para guardarla aquí."
                         BrowseMode.RECENTS -> "Sin recientes" to "Las canciones que reproduzcas aparecerán en esta lista."
-                        else -> "Sin canciones" to "No hay audio ni vídeo visibles. Descarga un archivo al teléfono o ábrelo desde Descargas y pulsa actualizar."
+                        else -> "Sin canciones" to "No hay canciones visibles. Descarga un archivo de audio al teléfono o ábrelo desde Descargas y pulsa actualizar."
                     }
                     EmptyMessage(
                         modifier = Modifier.weight(1f),
@@ -309,7 +312,7 @@ fun LibraryScreen(
                             Button(
                                 onClick = viewModel::playAll,
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = SpotifyGreen,
+                                    containerColor = Accent,
                                     contentColor = Color.White,
                                 ),
                             ) {
@@ -318,7 +321,7 @@ fun LibraryScreen(
                                 Text("Reproducir")
                             }
                             OutlinedButton(onClick = viewModel::shuffleAll) {
-                                Icon(Icons.Filled.Shuffle, contentDescription = null, tint = SpotifyGreen)
+                                Icon(Icons.Filled.Shuffle, contentDescription = null, tint = Accent)
                                 Spacer(Modifier.width(4.dp))
                                 Text("Aleatorio", color = OnBackground)
                             }
@@ -448,7 +451,7 @@ private fun BrowseChips(
                 onClick = { onSelect(mode) },
                 label = { Text(label) },
                 colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = SpotifyGreen,
+                    selectedContainerColor = Accent,
                     selectedLabelColor = Color.White,
                     containerColor = SurfaceElevated,
                     labelColor = OnBackground,
@@ -485,7 +488,7 @@ private fun SortMenu(
                     text = {
                         Text(
                             text = label,
-                            color = if (mode == current) SpotifyGreen else OnBackground,
+                            color = if (mode == current) Accent else OnBackground,
                         )
                     },
                     onClick = {
@@ -520,7 +523,7 @@ private fun GroupRow(
             Icon(
                 imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
                 contentDescription = if (selected) "Seleccionada" else "No seleccionada",
-                tint = if (selected) SpotifyGreen else ArtistGray,
+                tint = if (selected) Accent else ArtistGray,
                 modifier = Modifier
                     .padding(end = 8.dp)
                     .size(24.dp),
@@ -580,7 +583,7 @@ private fun EmptyMessage(
             Spacer(Modifier.height(16.dp))
             Button(
                 onClick = onAction,
-                colors = ButtonDefaults.buttonColors(containerColor = SpotifyGreen, contentColor = Color.White),
+                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White),
             ) {
                 Text(action)
             }
@@ -621,7 +624,7 @@ fun TrackRow(
             Icon(
                 imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
                 contentDescription = if (selected) "Seleccionada" else "No seleccionada",
-                tint = if (selected) SpotifyGreen else ArtistGray,
+                tint = if (selected) Accent else ArtistGray,
                 modifier = Modifier
                     .padding(end = 8.dp)
                     .size(24.dp),
@@ -633,13 +636,12 @@ fun TrackRow(
             Text(
                 text = track.title,
                 style = MaterialTheme.typography.titleMedium,
-                color = if (isCurrent) SpotifyGreen else OnBackground,
+                color = if (isCurrent) Accent else OnBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = buildString {
-                    if (track.isVideo) append("Vídeo · ")
                     append(track.artist)
                     append(" · ")
                     append(formatMs(track.durationMs))
@@ -662,7 +664,7 @@ fun TrackRow(
                 Icon(
                     imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                     contentDescription = if (isFavorite) "Quitar de queridas" else "Marcar como querida",
-                    tint = if (isFavorite) SpotifyGreen else ArtistGray,
+                    tint = if (isFavorite) Accent else ArtistGray,
                 )
             }
         }

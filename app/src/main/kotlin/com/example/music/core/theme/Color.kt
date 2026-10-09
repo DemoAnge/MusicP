@@ -2,8 +2,8 @@ package com.example.music.core.theme
 
 import androidx.compose.ui.graphics.Color
 
-val SpotifyGreen = Color(0xFF1DB954)
-val SpotifyGreenDark = Color(0xFF1AA34A)
+val Accent = Color(0xFF1DB954)
+val AccentDark = Color(0xFF1AA34A)
 val Background = Color(0xFF121212)
 val Surface = Color(0xFF181818)
 val SurfaceElevated = Color(0xFF282828)

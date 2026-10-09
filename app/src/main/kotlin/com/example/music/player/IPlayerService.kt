@@ -18,5 +18,6 @@ interface IPlayerService {
     fun setShuffle(enabled: Boolean)
     fun setRepeat(mode: RepeatMode)
     fun removeFromQueue(trackIds: Set<String>)
+    fun clearError()
     fun release()
 }
