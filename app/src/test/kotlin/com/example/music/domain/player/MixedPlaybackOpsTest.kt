@@ -79,7 +79,8 @@ class WebBridgeOpsTest {
     @Test
     fun bridgeDownDoesNotSkipQueue() {
         assertFalse(WebBridgeOps.shouldAdvanceQueueOnFailure(com.example.music.domain.model.PlaybackUserMessage.BRIDGE_DOWN))
-        assertTrue(WebBridgeOps.shouldAdvanceQueueOnFailure(com.example.music.domain.model.PlaybackUserMessage.YOUTUBE))
+        assertFalse(WebBridgeOps.shouldAdvanceQueueOnFailure(com.example.music.domain.model.PlaybackUserMessage.YOUTUBE))
+        assertFalse(WebBridgeOps.shouldAdvanceQueueOnFailure(com.example.music.domain.model.PlaybackUserMessage.YOUTUBE_EMBED))
         assertTrue(WebBridgeOps.shouldAdvanceQueueOnFailure(com.example.music.domain.model.PlaybackUserMessage.FILE_MISSING))
     }
 

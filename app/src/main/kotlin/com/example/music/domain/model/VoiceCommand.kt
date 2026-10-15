@@ -25,7 +25,8 @@ data class VoiceResult(
 )
 
 object VoiceCommandParser {
-    private val wake = Regex("^(?:oye |ok |okay |hey |activar )?m[uú]sica$")
+    private val wakeOnly = Regex("^(?:oye |ok |okay |hey |activar )?m[uú]sica$")
+    private val wakePrefix = Regex("^(?:oye |ok |okay |hey |activar )?m[uú]sica(?:\\s+|$)")
     private val exit = Regex("^(salir|exit|cierra|cerrar|cierra la app|cierra la aplicaci[oó]n)$")
     private val queue = Regex("^(cola|queue|lista|la cola)$")
     private val shuffle = Regex("^(mezclar|shuffle|aleatorio|activar aleatorio)$")
@@ -73,11 +74,17 @@ object VoiceCommandParser {
         .replace(spaces, " ")
         .trim()
 
-    fun isWakeWord(raw: String): Boolean = wake.matches(normalize(raw))
+    fun isWakeWord(raw: String): Boolean = wakePrefix.containsMatchIn(normalize(raw))
+
+    fun stripWakePrefix(raw: String): String {
+        val text = normalize(raw)
+        return wakePrefix.replaceFirst(text, "").trim()
+    }
 
     fun parse(raw: String): VoiceCommand? {
-        val text = normalize(raw)
-        if (text.isEmpty()) return null
+        val stripped = stripWakePrefix(raw)
+        val text = stripped.ifEmpty { normalize(raw) }
+        if (text.isEmpty() || wakeOnly.matches(text)) return null
         return when {
             exit.matches(text) -> VoiceCommand.Exit
             queue.matches(text) -> VoiceCommand.Queue

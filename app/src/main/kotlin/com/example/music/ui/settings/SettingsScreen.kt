@@ -42,7 +42,6 @@ import com.example.music.domain.model.EqPreset
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    onOpenDriving: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     modifier: Modifier = Modifier,
 ) {
@@ -213,26 +212,17 @@ fun SettingsScreen(
         Text("Manos libres", style = MaterialTheme.typography.titleMedium, color = OnBackground)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Modo conducción: tres botones grandes y pantalla encendida. " +
-                "El micrófono de arriba pide la palabra «música» y luego órdenes; se apaga a los 15 s. " +
-                "El temporizador de sueño está en Ahora suena.",
+            "El micrófono en biblioteca y Ahora suena te escucha al tocarlo. Di «pon [canción]», «quiero esta», «temporizador 15». Se apaga a los 15 s. El temporizador de sueño está en Ahora suena.",
             color = ArtistGray,
             style = MaterialTheme.typography.bodyMedium,
         )
         Spacer(Modifier.height(12.dp))
         ScanSwitch(
             title = "Modo karaoke",
-            body = "Línea actual enorme en Ahora suena. En conducción queda en una sola línea.",
+            body = "Línea actual enorme en Ahora suena.",
             checked = karaoke,
             onCheckedChange = viewModel::setKaraoke,
         )
-        Spacer(Modifier.height(12.dp))
-        Button(
-            onClick = onOpenDriving,
-            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnBackground),
-        ) {
-            Text("Modo conducción")
-        }
         Spacer(Modifier.height(24.dp))
         Text("Biblioteca", style = MaterialTheme.typography.titleMedium, color = OnBackground)
         Spacer(Modifier.height(8.dp))

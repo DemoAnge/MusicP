@@ -3,6 +3,7 @@ package com.example.music.ui.voice
 import android.content.Context
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.music.domain.model.VoiceCommandParser
@@ -57,22 +58,36 @@ class VoiceCommandViewModel @Inject constructor(
     )
     private var idleJob: Job? = null
     private var consecutiveErrors = 0
+    private var listenAfterTts = false
     private var ttsReady = false
     private var tts: TextToSpeech? = TextToSpeech(appContext) { status ->
-        val engine = tts ?: return@TextToSpeech
+        val engineTts = tts ?: return@TextToSpeech
         ttsReady = status == TextToSpeech.SUCCESS
         if (!ttsReady) return@TextToSpeech
         val spanish = Locale.forLanguageTag("es")
-        engine.language = if (engine.isLanguageAvailable(spanish) >= TextToSpeech.LANG_AVAILABLE) {
+        engineTts.language = if (engineTts.isLanguageAvailable(spanish) >= TextToSpeech.LANG_AVAILABLE) {
             spanish
         } else {
             Locale.getDefault()
         }
+        engineTts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) = Unit
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) {
+                onTtsFinished()
+            }
+            override fun onError(utteranceId: String?, errorCode: Int) {
+                onTtsFinished()
+            }
+            override fun onDone(utteranceId: String?) {
+                onTtsFinished()
+            }
+        })
     }
 
     fun onMicTapped() {
         when (_ui.value.phase) {
-            VoicePhase.Idle -> enterWake()
+            VoicePhase.Idle -> enterCommand("Te escucho")
             VoicePhase.Wake, VoicePhase.Command -> goIdle("Voz desactivada")
         }
     }
@@ -94,22 +109,11 @@ class VoiceCommandViewModel @Inject constructor(
         super.onCleared()
     }
 
-    private fun enterWake() {
+    private fun enterCommand(prompt: String) {
         if (!engine.prepare()) {
             goIdle("El reconocimiento de voz no está disponible")
             return
         }
-        consecutiveErrors = 0
-        _ui.value = VoiceUiState(
-            phase = VoicePhase.Wake,
-            listening = true,
-            prompt = "Di «música» para activar",
-        )
-        startIdleTimer()
-        engine.start()
-    }
-
-    private fun enterCommand(prompt: String) {
         consecutiveErrors = 0
         _ui.value = VoiceUiState(
             phase = VoicePhase.Command,
@@ -117,13 +121,17 @@ class VoiceCommandViewModel @Inject constructor(
             prompt = prompt,
         )
         startIdleTimer()
-        engine.scheduleRestart(RESTART_MS)
+        if (!speakThenListen(prompt)) {
+            _ui.value = _ui.value.copy(listening = true)
+            engine.start()
+        }
     }
 
     private fun goIdle(prompt: String) {
         idleJob?.cancel()
         idleJob = null
         consecutiveErrors = 0
+        listenAfterTts = false
         engine.destroy()
         _ui.value = VoiceUiState(phase = VoicePhase.Idle, listening = false, prompt = prompt)
         if (prompt.isNotBlank()) {
@@ -151,15 +159,19 @@ class VoiceCommandViewModel @Inject constructor(
             goIdle("Sin permiso de micrófono")
             return
         }
-        consecutiveErrors += 1
+        val soft = error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
+            error == SpeechRecognizer.ERROR_NO_MATCH
+        if (!soft) consecutiveErrors += 1
         if (consecutiveErrors >= MAX_ERRORS) {
             goIdle("Voz desactivada")
             return
         }
         val delayMs = when (error) {
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT -> BUSY_MS
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT, SpeechRecognizer.ERROR_NO_MATCH -> RESTART_MS
             else -> RESTART_MS
         }
+        _ui.value = _ui.value.copy(listening = true, prompt = _ui.value.prompt.ifBlank { "Te escucho" })
         engine.scheduleRestart(delayMs)
     }
 
@@ -167,52 +179,58 @@ class VoiceCommandViewModel @Inject constructor(
         if (_ui.value.phase == VoicePhase.Idle) return
         _ui.value = _ui.value.copy(listening = false)
         consecutiveErrors = 0
-        when (_ui.value.phase) {
-            VoicePhase.Idle -> Unit
-            VoicePhase.Wake -> {
-                if (VoiceCommandParser.isWakeWord(text)) {
-                    enterCommand("Te escucho")
-                    speak("Te escucho")
-                } else {
-                    _ui.value = _ui.value.copy(prompt = "Di «música» para activar")
-                    engine.scheduleRestart(RESTART_MS)
-                }
+        val rest = VoiceCommandParser.stripWakePrefix(text).ifBlank {
+            if (VoiceCommandParser.isWakeWord(text)) "" else text
+        }
+        if (rest.isBlank()) {
+            _ui.value = _ui.value.copy(prompt = "Te escucho", listening = true)
+            startIdleTimer()
+            engine.scheduleRestart(RESTART_MS)
+            return
+        }
+        viewModelScope.launch {
+            val result = runCatching { handleVoice(rest) }
+                .getOrElse { VoiceResult("No se pudo") }
+            if (result.exit) {
+                _events.tryEmit(VoiceEvent.Exit)
+                goIdle("")
+                return@launch
             }
-            VoicePhase.Command -> {
-                if (text.isBlank()) {
-                    engine.scheduleRestart(RESTART_MS)
-                    return
-                }
-                viewModelScope.launch {
-                    val result = runCatching { handleVoice(text) }
-                        .getOrElse { VoiceResult("No se pudo") }
-                    if (result.exit) {
-                        _events.tryEmit(VoiceEvent.Exit)
-                        goIdle("")
-                        return@launch
-                    }
-                    if (result.openQueue) {
-                        _openQueue.value = true
-                        _events.tryEmit(VoiceEvent.OpenQueue)
-                    }
-                    enterCommand(result.message)
-                    speak(result.message)
-                }
+            if (result.openQueue) {
+                _openQueue.value = true
+                _events.tryEmit(VoiceEvent.OpenQueue)
             }
+            enterCommand(result.message)
         }
     }
 
-    private fun speak(text: String) {
-        if (!ttsReady || text.isBlank()) return
-        runCatching {
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "voice-confirm")
+    private fun speakThenListen(text: String): Boolean {
+        if (!ttsReady || text.isBlank()) return false
+        listenAfterTts = true
+        val spoken = runCatching {
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE) == TextToSpeech.SUCCESS
+        }.getOrDefault(false)
+        if (!spoken) {
+            listenAfterTts = false
+            return false
         }
+        return true
+    }
+
+    private fun onTtsFinished() {
+        if (!listenAfterTts) return
+        listenAfterTts = false
+        if (_ui.value.phase == VoicePhase.Idle) return
+        _ui.value = _ui.value.copy(listening = true)
+        engine.scheduleRestart(AFTER_TTS_MS)
     }
 
     private companion object {
         const val IDLE_MS = 15_000L
         const val RESTART_MS = 450L
+        const val AFTER_TTS_MS = 250L
         const val BUSY_MS = 900L
-        const val MAX_ERRORS = 6
+        const val MAX_ERRORS = 12
+        const val UTTERANCE = "voice-confirm"
     }
 }

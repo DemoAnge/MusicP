@@ -38,8 +38,11 @@
   <script>
     const TOKEN = new URLSearchParams(location.search).get("token") || "";
     let player = null;
+    let playerReady = false;
     let armed = false;
     let lastCmd = "";
+    let pending = null;
+    let retries = 0;
     let saidHello = false;
     let pollDelay = 280;
     const statusEl = document.getElementById("status");
@@ -70,15 +73,18 @@
     }
 
     function loadId(id, autoplay) {
-      if (!id || !player) return;
-      if (autoplay && armed) player.loadVideoById(id);
-      else player.cueVideoById(id);
+      if (!id) return;
+      pending = { id: id, autoplay: autoplay !== false };
+      if (!playerReady || !player || typeof player.loadVideoById !== "function") return;
+      if (pending.autoplay && armed) player.loadVideoById(pending.id);
+      else player.cueVideoById(pending.id);
     }
 
     function handle(cmd) {
       if (!cmd || !cmd.type) return;
       lastCmd = JSON.stringify(cmd);
       if (cmd.type === "load") {
+        retries = 0;
         queryEl.textContent = cmd.title || "";
         loadId(cmd.videoId, cmd.autoplay !== false);
       } else if (cmd.type === "search") {
@@ -175,9 +181,19 @@
         width: "100%",
         height: "240",
         host: "https://www.youtube-nocookie.com",
-        playerVars: { playsinline: 1, rel: 0, origin: location.origin },
+        playerVars: {
+          playsinline: 1,
+          rel: 0,
+          origin: location.origin,
+          widget_referrer: location.origin,
+          enablejsapi: 1,
+        },
         events: {
-          onReady: function () { setStatus("Player listo. Toca Activar sonido.", false); },
+          onReady: function () {
+            playerReady = true;
+            setStatus("Player listo. Toca Activar sonido.", false);
+            if (pending) loadId(pending.id, pending.autoplay);
+          },
           onStateChange: function (e) {
             if (e.data === 0) {
               fetch("/state?token=" + encodeURIComponent(TOKEN), {
@@ -188,11 +204,23 @@
             }
             pushState();
           },
-          onError: function () {
+          onError: function (e) {
+            const code = e && e.data;
+            if (!pending) return;
+            if ((code === 5 || code === 2) && retries < 1) {
+              retries += 1;
+              setTimeout(function () { loadId(pending.id, pending.autoplay); }, 500);
+              return;
+            }
+            retries = 0;
+            const embed = code === 101 || code === 150 || code === 153;
+            const msg = embed
+              ? "Este video no permite reproducción embebida"
+              : "YouTube no pudo cargar el video";
             fetch("/state?token=" + encodeURIComponent(TOKEN), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ type: "error", message: "YouTube no pudo cargar el video" }),
+              body: JSON.stringify({ type: "error", message: msg, code: code || 0 }),
             }).catch(function () {});
           },
         },

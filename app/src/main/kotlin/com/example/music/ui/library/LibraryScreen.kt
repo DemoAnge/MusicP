@@ -29,6 +29,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -49,6 +51,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.QueuePlayNext
 import androidx.compose.material.icons.filled.Settings
@@ -96,6 +99,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.OnBackground
@@ -113,6 +117,8 @@ import com.example.music.ui.components.MusicSnackbarHost
 import com.example.music.ui.components.PlayingBars
 import com.example.music.ui.components.formatBytes
 import com.example.music.ui.components.formatMs
+import com.example.music.ui.voice.VoiceMicButton
+import com.example.music.ui.voice.rememberActivityVoiceViewModel
 
 private val DeleteRed = Color(0xFFE53935)
 
@@ -130,6 +136,14 @@ fun LibraryScreen(
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val voiceVm = rememberActivityVoiceViewModel()
+    val voiceUi by voiceVm.ui.collectAsStateWithLifecycle()
+    val pagerScope = rememberCoroutineScope()
+    val browseModes = remember { BrowseMode.entries.toList() }
+    val pagerState = rememberPagerState(
+        initialPage = browseModes.indexOf(ui.browse).coerceAtLeast(0),
+        pageCount = { browseModes.size },
+    )
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var menuTrack by remember { mutableStateOf<Track?>(null) }
     var playlistTrack by remember { mutableStateOf<Track?>(null) }
@@ -231,6 +245,19 @@ fun LibraryScreen(
         if (ui.selecting || ui.pickingForPlaylist) viewModel.exitSelection() else viewModel.closeGroup()
     }
 
+    LaunchedEffect(ui.browse) {
+        val page = browseModes.indexOf(ui.browse)
+        if (page >= 0 && pagerState.targetPage != page) {
+            pagerState.animateScrollToPage(page)
+        }
+    }
+    LaunchedEffect(pagerState.settledPage) {
+        val mode = browseModes.getOrNull(pagerState.settledPage) ?: return@LaunchedEffect
+        if (mode != ui.browse && ui.selectedGroupKey == null && !ui.selecting && !ui.pickingForPlaylist) {
+            viewModel.setBrowse(mode)
+        }
+    }
+
     val showSize = ui.sort == SortMode.SIZE_LARGE || ui.sort == SortMode.SIZE_SMALL
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -280,6 +307,8 @@ fun LibraryScreen(
                     Text(
                         text = when {
                             ui.pickingForPlaylist -> "Marca una o varias. No se copia el archivo."
+                            ui.selecting && ui.selectedPlaylistId != null ->
+                                "Quitar de la lista no borra el archivo. Eliminar del teléfono es aparte."
                             ui.selecting -> "Toca para marcar. Agrégalas a la cola o bórralas."
                             else -> ui.countLabel.ifBlank { "Música de este teléfono" }
                         },
@@ -335,6 +364,18 @@ fun LibraryScreen(
                             tint = if (ui.selectedIds.isEmpty()) ArtistGray else OnBackground,
                         )
                     }
+                    if (ui.selectedPlaylistId != null) {
+                        IconButton(
+                            onClick = viewModel::removeSelectedFromPlaylist,
+                            enabled = ui.selectedIds.isNotEmpty(),
+                        ) {
+                            Icon(
+                                Icons.Filled.Remove,
+                                contentDescription = "Quitar de esta lista",
+                                tint = if (ui.selectedIds.isEmpty()) ArtistGray else Accent,
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = { if (ui.selectedIds.isNotEmpty()) showDeleteConfirm = true },
                         enabled = ui.selectedIds.isNotEmpty(),
@@ -369,6 +410,11 @@ fun LibraryScreen(
                             Icon(Icons.Filled.VisibilityOff, contentDescription = "Ocultar carpeta", tint = OnBackground)
                         }
                     }
+                    VoiceMicButton(
+                        state = voiceUi,
+                        onTap = voiceVm::onMicTapped,
+                        onPermissionDenied = voiceVm::onPermissionDenied,
+                    )
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Ajustes", tint = OnBackground)
                     }
@@ -401,11 +447,25 @@ fun LibraryScreen(
                     Text("Permitir", color = Accent, style = MaterialTheme.typography.labelLarge)
                 }
             }
+            if (voiceUi.prompt.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    voiceUi.prompt,
+                    color = Accent,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
             if (!ui.selecting && !ui.pickingForPlaylist) {
                 Spacer(Modifier.height(8.dp))
                 BrowseChips(
                     selected = ui.browse,
-                    onSelect = viewModel::setBrowse,
+                    onSelect = { mode ->
+                        viewModel.setBrowse(mode)
+                        pagerScope.launch {
+                            val page = browseModes.indexOf(mode)
+                            if (page >= 0) pagerState.animateScrollToPage(page)
+                        }
+                    },
                 )
             }
             Spacer(Modifier.height(12.dp))
@@ -414,6 +474,13 @@ fun LibraryScreen(
                 isRefreshing = ui.refreshing,
                 onRefresh = viewModel::loadTracks,
                 modifier = Modifier.weight(1f),
+            ) {
+            HorizontalPager(
+                state = pagerState,
+                userScrollEnabled = ui.selectedGroupKey == null &&
+                    !ui.selecting &&
+                    !ui.pickingForPlaylist,
+                modifier = Modifier.fillMaxSize(),
             ) {
                 when {
                     !hasPermission -> {
@@ -637,6 +704,7 @@ fun LibraryScreen(
                         }
                     }
                 }
+            }
             }
         }
         MusicSnackbarHost(

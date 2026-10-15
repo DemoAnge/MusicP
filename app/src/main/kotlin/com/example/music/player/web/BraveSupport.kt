@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Browser
 import androidx.browser.customtabs.CustomTabsIntent
 
 object BraveSupport {
@@ -44,6 +45,7 @@ object BraveSupport {
                     Intent(Intent.ACTION_VIEW, uri).apply {
                         setPackage(brave)
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        putExtra(Browser.EXTRA_APPLICATION_ID, context.packageName)
                     },
                 )
                 true

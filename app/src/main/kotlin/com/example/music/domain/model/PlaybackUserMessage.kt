@@ -13,6 +13,8 @@ object PlaybackUserMessage {
         "El puente con Brave se cayó. Toca para reabrir puente."
     const val YOUTUBE =
         "YouTube no pudo reproducir. En Shields permite YouTube o toca Reabrir."
+    const val YOUTUBE_EMBED =
+        "Este video no permite reproducción embebida. Toca Reabrir o elige otro."
     const val GENERIC = "No se pudo reproducir."
     const val ACTION_REOPEN = "Reabrir"
     const val ACTION_SETTINGS = "Ajustes"
@@ -37,6 +39,8 @@ object PlaybackUserMessage {
     fun web(raw: String? = null): String {
         val text = raw.orEmpty()
         if (text == BRIDGE_DOWN || text.contains("puente", ignoreCase = true)) return BRIDGE_DOWN
+        val lower = text.lowercase()
+        if ("embeb" in lower || "101" in lower || "150" in lower || "153" in lower) return YOUTUBE_EMBED
         return YOUTUBE
     }
 
@@ -50,7 +54,7 @@ object PlaybackUserMessage {
         actionLabel(message) == ACTION_REOPEN
 
     fun actionLabel(message: String): String? = when (message) {
-        BRIDGE_DOWN, YOUTUBE -> ACTION_REOPEN
+        BRIDGE_DOWN, YOUTUBE, YOUTUBE_EMBED -> ACTION_REOPEN
         PERMISSION -> ACTION_SETTINGS
         else -> null
     }

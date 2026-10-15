@@ -21,7 +21,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
-import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -86,7 +85,6 @@ import com.example.music.ui.components.AlbumArt
 import com.example.music.ui.components.ThinSeekBar
 import com.example.music.ui.components.rememberArtworkPalette
 import com.example.music.ui.components.formatMs
-import com.example.music.ui.driving.sleepRemainingLabel
 import com.example.music.ui.voice.VoiceMicButton
 import com.example.music.ui.voice.rememberActivityVoiceViewModel
 import kotlinx.coroutines.delay
@@ -96,7 +94,6 @@ import kotlinx.coroutines.isActive
 fun NowPlayingScreen(
     viewModel: NowPlayingViewModel = hiltViewModel(),
     onClose: () -> Unit = {},
-    onOpenDriving: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
@@ -435,11 +432,6 @@ fun NowPlayingScreen(
                         OnBackground
                     },
                 )
-                TransportIcon(
-                    imageVector = Icons.Filled.DirectionsCar,
-                    contentDescription = "Modo conducción",
-                    onClick = onOpenDriving,
-                )
             }
             SleepRemainingLabel(playerState = playerState)
             if (voiceUi.prompt.isNotBlank()) {
@@ -485,7 +477,7 @@ private fun SleepRemainingLabel(playerState: PlayerState) {
             delay(1_000)
         }
     }
-    val sleepLabel = sleepRemainingLabel(
+    val sleepLabel = remainingSleepLabel(
         endsAt = playerState.sleepEndsAtEpochMs,
         atEndOfTrack = playerState.sleepAtEndOfTrack,
         now = now,
@@ -516,6 +508,15 @@ private fun SleepTimerDialog(
             TextButton(onClick = onDismiss) { Text("Cerrar", color = Accent) }
         },
     )
+}
+
+private fun remainingSleepLabel(endsAt: Long, atEndOfTrack: Boolean, now: Long): String? {
+    if (atEndOfTrack) return "Duerme al final de la pista"
+    if (endsAt <= 0L) return null
+    val left = (endsAt - now).coerceAtLeast(0L)
+    val minutes = left / 60_000L
+    val seconds = (left % 60_000L) / 1_000L
+    return "Duerme en %d:%02d".format(minutes, seconds)
 }
 
 private fun sleepOptionLabel(option: SleepOption): String = when (option) {

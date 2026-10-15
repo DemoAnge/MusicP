@@ -24,8 +24,21 @@ object WebBridgeOps {
     }
 
     fun shouldAdvanceQueueOnFailure(message: String): Boolean {
-        if (message == PlaybackUserMessage.BRIDGE_DOWN) return false
-        return "puente" !in message.lowercase()
+        if (message == PlaybackUserMessage.FILE_MISSING || message == PlaybackUserMessage.UNSUPPORTED) {
+            return true
+        }
+        val lower = message.lowercase()
+        if (message == PlaybackUserMessage.BRIDGE_DOWN ||
+            message == PlaybackUserMessage.YOUTUBE ||
+            message == PlaybackUserMessage.YOUTUBE_EMBED ||
+            "puente" in lower ||
+            "youtube" in lower ||
+            "brave" in lower ||
+            "embeb" in lower
+        ) {
+            return false
+        }
+        return true
     }
 
     fun sourceSubtitle(artist: String): String {

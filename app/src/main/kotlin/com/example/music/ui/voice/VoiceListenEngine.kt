@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * One-shot SpeechRecognizer. Created on demand, destroyed when idle.
+ * Cloud recognition first (Spanish works there); on-device only as fallback.
  * All calls are posted to the main thread.
  */
 internal class VoiceListenEngine(
@@ -24,25 +25,12 @@ internal class VoiceListenEngine(
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
-    private var preferOffline = false
     private var listening = false
     private val restart = Runnable { start() }
 
     fun prepare(): Boolean = runOnMainSync {
         if (recognizer != null) return@runOnMainSync true
-        var onDevice = false
-        val created = runCatching {
-            when {
-                Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext) -> {
-                    onDevice = true
-                    SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
-                }
-                SpeechRecognizer.isRecognitionAvailable(appContext) ->
-                    SpeechRecognizer.createSpeechRecognizer(appContext)
-                else -> null
-            }
-        }.getOrNull() ?: return@runOnMainSync false
-        preferOffline = onDevice
+        val created = createRecognizer() ?: return@runOnMainSync false
         created.setRecognitionListener(listener)
         recognizer = created
         true
@@ -50,15 +38,19 @@ internal class VoiceListenEngine(
 
     fun start() {
         main.post {
-            val sr = recognizer ?: return@post
-            if (listening) return@post
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.forLanguageTag("es-ES").toLanguageTag())
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-                if (preferOffline) putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            var sr = recognizer
+            if (sr == null) {
+                if (!prepare()) {
+                    onError(SpeechRecognizer.ERROR_CLIENT)
+                    return@post
+                }
+                sr = recognizer ?: return@post
             }
+            if (listening) {
+                runCatching { sr.cancel() }
+                listening = false
+            }
+            val intent = recognizeIntent()
             val started = runCatching {
                 sr.startListening(intent)
                 true
@@ -91,6 +83,35 @@ internal class VoiceListenEngine(
             runCatching { current?.cancel() }
             runCatching { current?.destroy() }
             true
+        }
+    }
+
+    private fun createRecognizer(): SpeechRecognizer? {
+        return runCatching {
+            when {
+                SpeechRecognizer.isRecognitionAvailable(appContext) ->
+                    SpeechRecognizer.createSpeechRecognizer(appContext)
+                Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext) ->
+                    SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
+                else -> null
+            }
+        }.getOrNull()
+    }
+
+    private fun recognizeIntent(): Intent {
+        val locale = Locale.getDefault()
+        val language = if (locale.language.equals("es", ignoreCase = true)) {
+            locale.toLanguageTag()
+        } else {
+            "es-ES"
+        }
+        return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, appContext.packageName)
         }
     }
 
@@ -134,7 +155,7 @@ internal class VoiceListenEngine(
             listening = false
             val text = results
                 ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                ?.firstOrNull()
+                ?.firstOrNull { it.isNotBlank() }
                 ?.trim()
                 .orEmpty()
             main.post { onText(text) }

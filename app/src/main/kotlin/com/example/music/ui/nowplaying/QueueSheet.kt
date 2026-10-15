@@ -1,5 +1,6 @@
 package com.example.music.ui.nowplaying
 
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,9 +29,15 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.music.core.theme.Accent
@@ -66,7 +74,7 @@ fun QueueSheet(
         ) {
             Text("Cola", style = MaterialTheme.typography.titleLarge, color = OnBackground)
             Text(
-                text = "${playerState.queue.size} canciones",
+                text = "${playerState.queue.size} canciones · mantén y desliza para reordenar",
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArtistGray,
             )
@@ -83,7 +91,7 @@ fun QueueSheet(
                 ) {
                     itemsIndexed(
                         playerState.queue,
-                        key = { index, track -> "q:$index:${track.id}" },
+                        key = { _, track -> track.id },
                     ) { index, track ->
                         QueueRow(
                             track = track,
@@ -92,10 +100,10 @@ fun QueueSheet(
                             isPlaying = index == playerState.queueIndex && playerState.isPlaying,
                             isFirst = index == 0,
                             isLast = index == playerState.queue.lastIndex,
+                            lastIndex = playerState.queue.lastIndex,
                             onPlay = { onPlayIndex(index) },
                             onRemove = { onRemove(track.id) },
-                            onMoveUp = { onMove(index, index - 1) },
-                            onMoveDown = { onMove(index, index + 1) },
+                            onMove = onMove,
                         )
                     }
                 }
@@ -112,19 +120,48 @@ private fun QueueRow(
     isPlaying: Boolean,
     isFirst: Boolean,
     isLast: Boolean,
+    lastIndex: Int,
     onPlay: () -> Unit,
     onRemove: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
+    onMove: (Int, Int) -> Unit,
 ) {
+    val density = LocalDensity.current
+    val rowPx = with(density) { 64.dp.toPx() }
+    var accum by remember(index) { mutableFloatStateOf(0f) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
+            .pointerInput(index, lastIndex) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { accum = 0f },
+                    onDragEnd = { accum = 0f },
+                    onDragCancel = { accum = 0f },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        accum += amount.y
+                        val steps = (accum / rowPx).toInt()
+                        if (steps != 0) {
+                            val target = (index + steps).coerceIn(0, lastIndex)
+                            if (target != index) {
+                                onMove(index, target)
+                                accum -= steps * rowPx
+                            }
+                        }
+                    },
+                )
+            }
             .clickable(onClick = onPlay)
             .padding(vertical = 4.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(
+            Icons.Filled.DragHandle,
+            contentDescription = "Arrastrar para reordenar",
+            tint = ArtistGray,
+            modifier = Modifier.size(24.dp),
+        )
+        Spacer(Modifier.width(4.dp))
         AlbumArt(track = track, size = 44.dp)
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -151,10 +188,10 @@ private fun QueueRow(
             PlayingBars()
             Spacer(Modifier.width(4.dp))
         }
-        IconButton(onClick = onMoveUp, enabled = !isFirst, modifier = Modifier.size(40.dp)) {
+        IconButton(onClick = { onMove(index, index - 1) }, enabled = !isFirst, modifier = Modifier.size(40.dp)) {
             Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Subir", tint = OnBackground)
         }
-        IconButton(onClick = onMoveDown, enabled = !isLast, modifier = Modifier.size(40.dp)) {
+        IconButton(onClick = { onMove(index, index + 1) }, enabled = !isLast, modifier = Modifier.size(40.dp)) {
             Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Bajar", tint = OnBackground)
         }
         IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {

@@ -147,6 +147,13 @@ class LibraryViewModel @Inject constructor(
         exitSelection()
     }
 
+    fun shiftBrowse(delta: Int) {
+        val modes = BrowseMode.entries
+        val index = modes.indexOf(browseMode.value)
+        val next = modes.getOrNull(index + delta) ?: return
+        if (next != browseMode.value) setBrowse(next)
+    }
+
     fun setSort(mode: SortMode) {
         sortMode.value = mode
     }
@@ -324,6 +331,23 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { playlists.removeTrack(id, trackId) }
             _notice.value = "Quitada de la lista"
+        }
+    }
+
+    fun removeSelectedFromPlaylist() {
+        val id = uiState.value.selectedPlaylistId ?: return
+        val ids = selectedIds.value
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            when (runCatching { playlists.removeTracks(id, ids) }.getOrNull()) {
+                PlaylistMutation.TrackRemoved -> _notice.value = if (ids.size == 1) {
+                    "Quitada de la lista"
+                } else {
+                    "${ids.size} quitadas de la lista"
+                }
+                else -> _notice.value = "No se pudo quitar de la lista"
+            }
+            exitSelection()
         }
     }
 

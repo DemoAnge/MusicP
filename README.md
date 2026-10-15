@@ -5,13 +5,12 @@ Reproductor de música **manos libres** para Android (Kotlin + Jetpack Compose).
 ## Funciones
 
 - **Biblioteca local:** canciones del teléfono (MediaStore + ExoPlayer). Inicio con recientes, queridas y álbumes; carpetas, artistas y álbumes; listas de usuario (solo IDs, sin copiar archivos: reordenar, renombrar, reproducir siguiente o añadir a cola en bloque). Carátulas embebidas en listas. En Ajustes: carpetas ocultas por nombre, y mostrar u ocultar podcasts/audiolibros (mime, carpeta o duración).
-- **Transporte:** anterior, play/pausa, siguiente y barra de progreso. Mini reproductor, pantalla Now Playing y modo conducción con paleta de la carátula. Widget, notificación y pantalla de bloqueo.
+- **Transporte:** anterior, play/pausa, siguiente y barra de progreso. Mini reproductor y pantalla Now Playing con paleta de la carátula. Widget, notificación y pantalla de bloqueo.
 - **YouTube en Brave:** si [Brave](https://play.google.com/store/apps/details?id=com.brave.browser) está instalado, la app abre un puente local (`127.0.0.1`) y reproduce YouTube con la IFrame Player API oficial. La app es el mando (play, pausa, skip). El poll se reconecta solo; si la pestaña murió, «Toca para reabrir puente». Mini player, widget y notificación muestran «Suena en Brave». Cola mixta: al pasar a web el local pausa; skip cruza fuentes. Checklist en Ajustes (pestaña abierta, Shields, activar sonido). Sin Brave: Play Store o el navegador predeterminado.
 - **Búsqueda:** una caja agrupa canciones, artistas y álbumes locales, más YouTube en Brave. Historial de búsquedas recientes. Con `YOUTUBE_API_KEY` en `local.properties` (Data API v3, tuya) lista hasta 5 videos; si no hay clave, se abre Brave para pegar el enlace en el puente.
-- **Letras sincronizadas:** tags ID3, archivos `.lrc` y lrclib.net. Offset ±0,5 s por canción. Sin LRC, letra plana más legible (sin traducir ni romanizar). Karaoke opcional: línea actual enorme; en conducción, una sola línea.
-- **Conducción:** tres botones grandes, letras opcionales, skip deslizando, paleta de la carátula y pantalla encendida.
+- **Letras sincronizadas:** tags ID3, archivos `.lrc` y lrclib.net. Offset ±0,5 s por canción. Sin LRC, letra plana más legible (sin traducir ni romanizar). Karaoke opcional: línea actual enorme.
 - **Ajustes:** temporizador de sueño; velocidad 0.8–1.5× por tipo (música vs podcast/audiolibro); normalización ReplayGain; fundido corto opcional (en lugar de gapless); ecualizador de 3 presets (off / graves / voz / brillo).
-- **Voz (opcional):** micrófono arriba, palabra de activación «música», luego «pon [canción/artista/álbum]», «quiero esta», «temporizador 15», «más despacio» / «a 1.2», play, pausa, siguiente, anterior, cola, mezclar, repetir o salir. Confirmación hablada corta. Se apaga a los 15 s de inactividad.
+- **Voz (opcional):** micrófono en biblioteca y Ahora suena. Al tocarlo te escucha: «pon [canción/artista/álbum]», «quiero esta», «temporizador 15», «más despacio» / «a 1.2», play, pausa, siguiente, anterior, cola, mezclar, repetir o salir. Confirmación hablada corta. Se apaga a los 15 s de inactividad.
 - **Widget:** barra o 2×2, con rewind de 10 s.
 - **Android Auto / AVRCP:** sesión Media3.
 

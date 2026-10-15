@@ -41,6 +41,9 @@ class ManagePlaylistsUseCaseTest {
         useCase.add(created.id, listOf("b"))
         assertEquals(PlaylistMutation.TrackRemoved, useCase.removeTrack(created.id, "a"))
         assertEquals(listOf("b"), prefs.observePlaylists().first().single().trackIds)
+        useCase.add(created.id, listOf("a", "c"))
+        assertEquals(PlaylistMutation.TrackRemoved, useCase.removeTracks(created.id, listOf("b", "c")))
+        assertEquals(listOf("a"), prefs.observePlaylists().first().single().trackIds)
         assertEquals(PlaylistMutation.Deleted, useCase.delete(created.id))
         assertTrue(prefs.observePlaylists().first().isEmpty())
     }

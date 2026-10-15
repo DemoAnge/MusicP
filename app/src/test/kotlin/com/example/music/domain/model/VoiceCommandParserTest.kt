@@ -12,7 +12,10 @@ class VoiceCommandParserTest {
         assertTrue(VoiceCommandParser.isWakeWord("música"))
         assertTrue(VoiceCommandParser.isWakeWord("oye música"))
         assertTrue(VoiceCommandParser.isWakeWord("OK musica"))
+        assertTrue(VoiceCommandParser.isWakeWord("música pon queen"))
         assertFalse(VoiceCommandParser.isWakeWord("pon música"))
+        assertEquals("pon queen", VoiceCommandParser.stripWakePrefix("música pon queen"))
+        assertEquals(VoiceCommand.PlayQuery("queen"), VoiceCommandParser.parse("música pon queen"))
     }
 
     @Test

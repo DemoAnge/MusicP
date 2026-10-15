@@ -23,10 +23,12 @@ class PlaybackUserMessageTest {
 
     @Test
     fun mapsWebAndBridge() {
-        assertEquals(PlaybackUserMessage.YOUTUBE, PlaybackUserMessage.web("150"))
+        assertEquals(PlaybackUserMessage.YOUTUBE_EMBED, PlaybackUserMessage.web("150"))
+        assertEquals(PlaybackUserMessage.YOUTUBE, PlaybackUserMessage.web("YouTube no pudo cargar el video"))
         assertEquals(PlaybackUserMessage.BRIDGE_DOWN, PlaybackUserMessage.web(PlaybackUserMessage.BRIDGE_DOWN))
         assertEquals(PlaybackUserMessage.BRIDGE_DOWN, PlaybackUserMessage.web("el puente se cayó"))
         assertTrue(PlaybackUserMessage.canReopenBridge(PlaybackUserMessage.YOUTUBE))
+        assertTrue(PlaybackUserMessage.canReopenBridge(PlaybackUserMessage.YOUTUBE_EMBED))
         assertTrue(PlaybackUserMessage.canReopenBridge(PlaybackUserMessage.BRIDGE_DOWN))
         assertFalse(PlaybackUserMessage.canReopenBridge(PlaybackUserMessage.FILE_MISSING))
         assertEquals(PlaybackUserMessage.ACTION_REOPEN, PlaybackUserMessage.actionLabel(PlaybackUserMessage.BRIDGE_DOWN))

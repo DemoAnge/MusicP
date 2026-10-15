@@ -47,9 +47,14 @@ class ManagePlaylistsUseCase @Inject constructor(
         return PlaylistMutation.Added(toAdd.size)
     }
 
-    suspend fun removeTrack(playlistId: String, trackId: String): PlaylistMutation {
-        if (playlistId.isBlank() || trackId.isBlank()) return PlaylistMutation.Missing
-        prefs.removeFromPlaylist(playlistId, trackId)
+    suspend fun removeTrack(playlistId: String, trackId: String): PlaylistMutation =
+        removeTracks(playlistId, listOf(trackId))
+
+    suspend fun removeTracks(playlistId: String, trackIds: Collection<String>): PlaylistMutation {
+        if (playlistId.isBlank()) return PlaylistMutation.Missing
+        val ids = trackIds.filter { it.isNotBlank() }.distinct()
+        if (ids.isEmpty()) return PlaylistMutation.Missing
+        ids.forEach { prefs.removeFromPlaylist(playlistId, it) }
         return PlaylistMutation.TrackRemoved
     }
 
