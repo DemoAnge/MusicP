@@ -9,9 +9,10 @@ Reproductor de música **manos libres** para Android (Kotlin + Jetpack Compose).
 - **YouTube en Brave:** si [Brave](https://play.google.com/store/apps/details?id=com.brave.browser) está instalado, la app abre un puente local (`127.0.0.1`) y reproduce YouTube con la IFrame Player API. La app es el mando (play, pausa, skip). Sin Brave, hay enlace a Play Store y se usa el navegador predeterminado. Deja la pestaña del puente abierta; en Shields, permite YouTube en esa página si el embed no carga.
 - **Búsqueda:** una caja agrupa canciones, artistas y álbumes locales, más YouTube en Brave. Historial de búsquedas recientes. Con `YOUTUBE_API_KEY` en `local.properties` (Data API v3, tuya) lista hasta 5 videos; si no hay clave, se abre Brave para pegar el enlace en el puente.
 - **Letras sincronizadas:** tags ID3, archivos `.lrc` y lrclib.net.
-- **Conducción:** tres botones grandes y pantalla encendida.
+- **Conducción:** tres botones grandes, letras opcionales, skip deslizando y pantalla encendida.
 - **Ajustes:** temporizador de sueño, velocidad 0.8–1.5× en audio local.
-- **Voz (opcional):** micrófono arriba, palabra de activación «música», luego play, pausa, siguiente, anterior, cola, mezclar, repetir 1, repetir todos o salir. Se apaga a los 15 s de inactividad.
+- **Voz (opcional):** micrófono arriba, palabra de activación «música», luego «pon [canción/artista/álbum]», «quiero esta», «temporizador 15», «más despacio» / «a 1.2», play, pausa, siguiente, anterior, cola, mezclar, repetir o salir. Confirmación hablada corta. Se apaga a los 15 s de inactividad.
+- **Widget:** barra o 2×2, con rewind de 10 s.
 - **Android Auto / AVRCP:** sesión Media3.
 
 ## Ejecutar

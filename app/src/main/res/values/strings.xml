@@ -4,11 +4,12 @@
     <string name="playback_channel_description">Controles en la notificación y en la pantalla de bloqueo</string>
     <string name="playback_notification_text">Reproduciendo</string>
     <string name="widget_name">Reproductor</string>
-    <string name="widget_description">Carátula, play, anterior y siguiente en la pantalla de inicio</string>
+    <string name="widget_description">Barra o 2×2: carátula, rewind 10 s, play y siguiente</string>
     <string name="widget_idle_title">Nada en reproducción</string>
     <string name="widget_idle_artist">Abre MusicP y elige una canción</string>
     <string name="widget_artwork">Carátula</string>
     <string name="widget_previous">Anterior</string>
     <string name="widget_next">Siguiente</string>
     <string name="widget_play_pause">Reproducir o pausar</string>
+    <string name="widget_rewind">Retroceder 10 segundos</string>
 </resources>

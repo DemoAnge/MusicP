@@ -3,6 +3,7 @@ package com.example.music.ui.driving
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
@@ -34,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -57,6 +60,8 @@ fun DrivingScreen(
     modifier: Modifier = Modifier,
 ) {
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val showLyrics by viewModel.showLyrics.collectAsStateWithLifecycle()
+    val lyrics by viewModel.lyrics.collectAsStateWithLifecycle()
     val track = playerState.currentTrack
     val view = LocalView.current
     val voiceVm = rememberActivityVoiceViewModel()
@@ -97,6 +102,23 @@ fun DrivingScreen(
                 )
             }
             Spacer(Modifier.weight(1f))
+            Box(
+                modifier = Modifier
+                    .height(56.dp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(if (showLyrics) Accent else Color(0xFF222222))
+                    .clickable(onClick = viewModel::toggleLyrics)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Letras",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Spacer(Modifier.size(8.dp))
             VoiceMicButton(
                 state = voiceUi,
                 onTap = voiceVm::onMicTapped,
@@ -109,9 +131,14 @@ fun DrivingScreen(
             Text(
                 voiceUi.prompt,
                 color = Accent,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
             )
         }
         val sleepLabel = sleepRemainingLabel(
@@ -120,30 +147,71 @@ fun DrivingScreen(
             now = now,
         )
         if (sleepLabel != null) {
-            Text(sleepLabel, color = Accent, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                sleepLabel,
+                color = Accent,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = track?.title ?: "Nada en reproducción",
-            color = OnBackground,
-            fontSize = 34.sp,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = track?.artist ?: "Elige una canción y vuelve aquí",
-            color = ArtistGray,
-            fontSize = 22.sp,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.weight(1f))
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .pointerInput(viewModel) {
+                    var total = 0f
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            when {
+                                total < -80f -> viewModel.skipNext()
+                                total > 80f -> viewModel.skipPrevious()
+                            }
+                            total = 0f
+                        },
+                        onDragCancel = { total = 0f },
+                        onHorizontalDrag = { _, amount -> total += amount },
+                    )
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (showLyrics) {
+                val line = lyrics?.lineAt(playerState.positionMs)?.text
+                Text(
+                    text = line?.ifBlank { null } ?: "Sin letras",
+                    color = OnBackground,
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = track?.title ?: "Nada en reproducción",
+                        color = OnBackground,
+                        fontSize = 34.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = track?.artist ?: "Elige una canción y vuelve aquí",
+                        color = ArtistGray,
+                        fontSize = 22.sp,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()

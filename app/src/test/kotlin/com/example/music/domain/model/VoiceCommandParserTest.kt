@@ -31,8 +31,27 @@ class VoiceCommandParserTest {
     }
 
     @Test
+    fun parsesPlayQueryLikeSleepAndSpeed() {
+        assertEquals(VoiceCommand.PlayQuery("coldplay"), VoiceCommandParser.parse("pon coldplay"))
+        assertEquals(VoiceCommand.PlayQuery("queen"), VoiceCommandParser.parse("pon a queen"))
+        assertEquals(VoiceCommand.PlayQuery("bohemian rhapsody"), VoiceCommandParser.parse("quiero escuchar Bohemian Rhapsody"))
+        assertEquals(VoiceCommand.LikeCurrent, VoiceCommandParser.parse("quiero esta"))
+        assertEquals(VoiceCommand.LikeCurrent, VoiceCommandParser.parse("me gusta esta"))
+        assertEquals(VoiceCommand.SetSleep(SleepOption.MINUTES_15), VoiceCommandParser.parse("temporizador 15"))
+        assertEquals(VoiceCommand.SetSleep(SleepOption.MINUTES_30), VoiceCommandParser.parse("duerme en 30 minutos"))
+        assertEquals(VoiceCommand.SetSleep(SleepOption.END_OF_TRACK), VoiceCommandParser.parse("temporizador fin de pista"))
+        assertEquals(VoiceCommand.SpeedDown, VoiceCommandParser.parse("más despacio"))
+        assertEquals(VoiceCommand.SpeedUp, VoiceCommandParser.parse("más rápido"))
+        assertEquals(VoiceCommand.SetSpeed(1.2f), VoiceCommandParser.parse("a 1.2"))
+        assertEquals(VoiceCommand.SetSpeed(1.2f), VoiceCommandParser.parse("a 1,2"))
+        assertEquals(VoiceCommand.SetSpeed(1.2f), VoiceCommandParser.parse("a uno coma dos"))
+        assertEquals(VoiceCommand.Play, VoiceCommandParser.parse("reproduce"))
+    }
+
+    @Test
     fun unknownSpeechReturnsNull() {
-        assertNull(VoiceCommandParser.parse("pon coldplay"))
+        assertNull(VoiceCommandParser.parse("pon"))
         assertNull(VoiceCommandParser.parse(""))
+        assertNull(VoiceCommandParser.parse("receta de pasta"))
     }
 }

@@ -2,6 +2,7 @@ package com.example.music.ui.voice
 
 import android.content.Context
 import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.music.domain.model.VoiceCommandParser
@@ -9,6 +10,7 @@ import com.example.music.domain.model.VoiceResult
 import com.example.music.domain.usecase.HandleVoiceCommandUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -55,6 +57,18 @@ class VoiceCommandViewModel @Inject constructor(
     )
     private var idleJob: Job? = null
     private var consecutiveErrors = 0
+    private var ttsReady = false
+    private var tts: TextToSpeech? = TextToSpeech(appContext) { status ->
+        val engine = tts ?: return@TextToSpeech
+        ttsReady = status == TextToSpeech.SUCCESS
+        if (!ttsReady) return@TextToSpeech
+        val spanish = Locale.forLanguageTag("es")
+        engine.language = if (engine.isLanguageAvailable(spanish) >= TextToSpeech.LANG_AVAILABLE) {
+            spanish
+        } else {
+            Locale.getDefault()
+        }
+    }
 
     fun onMicTapped() {
         when (_ui.value.phase) {
@@ -73,6 +87,10 @@ class VoiceCommandViewModel @Inject constructor(
 
     override fun onCleared() {
         goIdle(prompt = "")
+        ttsReady = false
+        tts?.stop()
+        tts?.shutdown()
+        tts = null
         super.onCleared()
     }
 
@@ -153,7 +171,8 @@ class VoiceCommandViewModel @Inject constructor(
             VoicePhase.Idle -> Unit
             VoicePhase.Wake -> {
                 if (VoiceCommandParser.isWakeWord(text)) {
-                    enterCommand("Activada. Te escucho")
+                    enterCommand("Te escucho")
+                    speak("Te escucho")
                 } else {
                     _ui.value = _ui.value.copy(prompt = "Di «música» para activar")
                     engine.scheduleRestart(RESTART_MS)
@@ -164,19 +183,29 @@ class VoiceCommandViewModel @Inject constructor(
                     engine.scheduleRestart(RESTART_MS)
                     return
                 }
-                val result = runCatching { handleVoice(text) }
-                    .getOrElse { VoiceResult("No se pudo") }
-                if (result.exit) {
-                    _events.tryEmit(VoiceEvent.Exit)
-                    goIdle("")
-                    return
+                viewModelScope.launch {
+                    val result = runCatching { handleVoice(text) }
+                        .getOrElse { VoiceResult("No se pudo") }
+                    if (result.exit) {
+                        _events.tryEmit(VoiceEvent.Exit)
+                        goIdle("")
+                        return@launch
+                    }
+                    if (result.openQueue) {
+                        _openQueue.value = true
+                        _events.tryEmit(VoiceEvent.OpenQueue)
+                    }
+                    enterCommand(result.message)
+                    speak(result.message)
                 }
-                if (result.openQueue) {
-                    _openQueue.value = true
-                    _events.tryEmit(VoiceEvent.OpenQueue)
-                }
-                enterCommand(result.message)
             }
+        }
+    }
+
+    private fun speak(text: String) {
+        if (!ttsReady || text.isBlank()) return
+        runCatching {
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "voice-confirm")
         }
     }
 

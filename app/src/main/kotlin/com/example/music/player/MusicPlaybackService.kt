@@ -148,6 +148,10 @@ class MusicPlaybackService : MediaSessionService() {
                 if (coordinator.state.value.currentTrack == null) openApp()
                 else coordinator.skipPrevious()
             }
+            ACTION_REWIND -> {
+                if (coordinator.state.value.currentTrack == null) openApp()
+                else coordinator.seekBy(-10_000L)
+            }
         }
     }
 
@@ -344,5 +348,6 @@ class MusicPlaybackService : MediaSessionService() {
         const val ACTION_TOGGLE = "com.dmusic.action.TOGGLE"
         const val ACTION_NEXT = "com.dmusic.action.NEXT"
         const val ACTION_PREVIOUS = "com.dmusic.action.PREVIOUS"
+        const val ACTION_REWIND = "com.dmusic.action.REWIND"
     }
 }

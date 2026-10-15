@@ -10,6 +10,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.widget.RemoteViews
 import com.example.music.MainActivity
 import com.example.music.R
@@ -33,7 +34,20 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
     ) {
         val state = currentState()
         appWidgetIds.forEach { id ->
-            runCatching { appWidgetManager.updateAppWidget(id, buildViews(context, state)) }
+            val options = runCatching { appWidgetManager.getAppWidgetOptions(id) }.getOrNull()
+            runCatching { appWidgetManager.updateAppWidget(id, buildViews(context, state, options)) }
+        }
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle,
+    ) {
+        val state = currentState()
+        runCatching {
+            appWidgetManager.updateAppWidget(appWidgetId, buildViews(context, state, newOptions))
         }
     }
 
@@ -43,6 +57,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             ACTION_TOGGLE -> MusicPlaybackService.ACTION_TOGGLE
             ACTION_NEXT -> MusicPlaybackService.ACTION_NEXT
             ACTION_PREVIOUS -> MusicPlaybackService.ACTION_PREVIOUS
+            ACTION_REWIND -> MusicPlaybackService.ACTION_REWIND
             else -> null
         }
         if (serviceAction != null) {
@@ -60,28 +75,47 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
         const val ACTION_TOGGLE = "com.dmusic.widget.TOGGLE"
         const val ACTION_NEXT = "com.dmusic.widget.NEXT"
         const val ACTION_PREVIOUS = "com.dmusic.widget.PREVIOUS"
+        const val ACTION_REWIND = "com.dmusic.widget.REWIND"
+
+        fun isCompact(options: Bundle?): Boolean {
+            if (options == null) return false
+            val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
+            return height >= 100
+        }
 
         fun updateAll(context: Context, state: PlayerState) {
             runCatching {
                 val manager = AppWidgetManager.getInstance(context)
                 val ids = manager.getAppWidgetIds(ComponentName(context, PlaybackWidgetProvider::class.java))
                 if (ids.isEmpty()) return
-                val views = buildViews(context, state)
-                ids.forEach { id -> manager.updateAppWidget(id, views) }
+                ids.forEach { id ->
+                    val options = runCatching { manager.getAppWidgetOptions(id) }.getOrNull()
+                    manager.updateAppWidget(id, buildViews(context, state, options))
+                }
             }
         }
 
-        fun buildViews(context: Context, state: PlayerState): RemoteViews {
-            val views = RemoteViews(context.packageName, R.layout.widget_playback)
+        fun buildViews(
+            context: Context,
+            state: PlayerState,
+            options: Bundle? = null,
+        ): RemoteViews {
+            val compact = isCompact(options)
+            val views = RemoteViews(
+                context.packageName,
+                if (compact) R.layout.widget_playback_compact else R.layout.widget_playback,
+            )
             val track = state.currentTrack
             if (track == null) {
                 views.setTextViewText(R.id.widget_title, context.getString(R.string.widget_idle_title))
-                views.setTextViewText(R.id.widget_artist, context.getString(R.string.widget_idle_artist))
+                if (!compact) {
+                    views.setTextViewText(R.id.widget_artist, context.getString(R.string.widget_idle_artist))
+                }
                 views.setImageViewResource(R.id.widget_art, R.drawable.ic_widget_album)
                 views.setImageViewResource(R.id.widget_play_icon, R.drawable.ic_widget_play)
             } else {
                 views.setTextViewText(R.id.widget_title, track.title)
-                views.setTextViewText(R.id.widget_artist, track.artist)
+                if (!compact) views.setTextViewText(R.id.widget_artist, track.artist)
                 views.setImageViewResource(
                     R.id.widget_play_icon,
                     if (state.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
@@ -94,18 +128,24 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                 }
             }
             views.setOnClickPendingIntent(R.id.widget_art, activityIntent(context, 10))
-            views.setOnClickPendingIntent(R.id.widget_info, activityIntent(context, 11))
+            if (!compact) {
+                views.setOnClickPendingIntent(R.id.widget_info, activityIntent(context, 11))
+                views.setOnClickPendingIntent(
+                    R.id.widget_prev,
+                    serviceIntent(context, MusicPlaybackService.ACTION_PREVIOUS, 21),
+                )
+            }
             views.setOnClickPendingIntent(
                 R.id.widget_play,
                 serviceIntent(context, MusicPlaybackService.ACTION_TOGGLE, 20),
             )
             views.setOnClickPendingIntent(
-                R.id.widget_prev,
-                serviceIntent(context, MusicPlaybackService.ACTION_PREVIOUS, 21),
-            )
-            views.setOnClickPendingIntent(
                 R.id.widget_next,
                 serviceIntent(context, MusicPlaybackService.ACTION_NEXT, 22),
+            )
+            views.setOnClickPendingIntent(
+                R.id.widget_rewind,
+                serviceIntent(context, MusicPlaybackService.ACTION_REWIND, 23),
             )
             return views
         }
