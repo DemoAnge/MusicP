@@ -31,4 +31,8 @@ class ObserveLibraryPrefsUseCase @Inject constructor(
     suspend fun setNormalizeVolume(enabled: Boolean) = prefs.setNormalizeVolume(enabled)
     suspend fun setCrossfadeEnabled(enabled: Boolean) = prefs.setCrossfadeEnabled(enabled)
     suspend fun setEqPreset(preset: com.example.music.domain.model.EqPreset) = prefs.setEqPreset(preset)
+    fun lyricsOffsets() = prefs.observeLyricsOffsets()
+    suspend fun setLyricsOffset(trackId: String, offsetMs: Long) = prefs.setLyricsOffset(trackId, offsetMs)
+    fun karaoke() = prefs.observeKaraoke()
+    suspend fun setKaraoke(enabled: Boolean) = prefs.setKaraoke(enabled)
 }

@@ -6,6 +6,7 @@ import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.SyncedLyrics
 import com.example.music.domain.usecase.ControlPlaybackUseCase
 import com.example.music.domain.usecase.GetSyncedLyricsUseCase
+import com.example.music.domain.usecase.ObserveLibraryPrefsUseCase
 import com.example.music.domain.usecase.ObservePlayerStateUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -23,6 +25,7 @@ class DrivingViewModel @Inject constructor(
     observePlayerState: ObservePlayerStateUseCase,
     private val controls: ControlPlaybackUseCase,
     private val getSyncedLyrics: GetSyncedLyricsUseCase,
+    observePrefs: ObserveLibraryPrefsUseCase,
 ) : ViewModel() {
 
     val playerState: StateFlow<PlayerState> = observePlayerState().stateIn(
@@ -36,6 +39,19 @@ class DrivingViewModel @Inject constructor(
 
     private val _lyrics = MutableStateFlow<SyncedLyrics?>(null)
     val lyrics: StateFlow<SyncedLyrics?> = _lyrics.asStateFlow()
+
+    val lyricsOffset: StateFlow<Long> = combine(
+        playerState.map { it.currentTrack?.id },
+        observePrefs.lyricsOffsets(),
+    ) { id, map ->
+        id?.let { map[it] } ?: 0L
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
+    val karaoke: StateFlow<Boolean> = observePrefs.karaoke().stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        false,
+    )
 
     init {
         viewModelScope.launch {

@@ -5,6 +5,7 @@ import android.net.Uri
 import com.example.music.core.network.LyricsApi
 import com.example.music.domain.model.SyncedLyrics
 import com.example.music.domain.model.Track
+import com.example.music.domain.player.LyricsDisplayOps
 import com.example.music.domain.repository.LyricsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -32,7 +33,9 @@ class LyricsRepositoryImpl @Inject constructor(
             return@withContext SyncedLyrics(
                 trackId = track.id,
                 lines = synced,
-                plainText = if (synced.isEmpty()) embedded else LrcParser.plainText(embedded),
+                plainText = LyricsDisplayOps.readablePlain(
+                    if (synced.isEmpty()) embedded else LrcParser.plainText(embedded),
+                ),
             )
         }
         runCatching {
@@ -43,11 +46,12 @@ class LyricsRepositoryImpl @Inject constructor(
                 durationSeconds = (track.durationMs / 1000).toInt().takeIf { it > 0 },
             )
             val synced = dto.syncedLyrics?.let(LrcParser::parse).orEmpty()
-            if (synced.isEmpty() && dto.plainLyrics.isNullOrBlank()) return@withContext null
+            val plain = LyricsDisplayOps.readablePlain(dto.plainLyrics)
+            if (synced.isEmpty() && plain.isBlank()) return@withContext null
             SyncedLyrics(
                 trackId = track.id,
                 lines = synced,
-                plainText = dto.plainLyrics,
+                plainText = plain.ifBlank { null },
             )
         }.getOrNull()
     }

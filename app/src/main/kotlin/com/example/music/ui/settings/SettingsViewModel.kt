@@ -61,6 +61,12 @@ class SettingsViewModel @Inject constructor(
         LocalAudioPrefs(),
     )
 
+    val karaoke: StateFlow<Boolean> = prefs.karaoke().stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        false,
+    )
+
     fun unignoreFolder(path: String) {
         viewModelScope.launch { runCatching { ignoreFolder.restore(path) } }
     }
@@ -99,6 +105,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setEqPreset(preset: EqPreset) {
         viewModelScope.launch { runCatching { prefs.setEqPreset(preset) } }
+    }
+
+    fun setKaraoke(enabled: Boolean) {
+        viewModelScope.launch { runCatching { prefs.setKaraoke(enabled) } }
     }
 
     fun reopenBridge() = controls.reopenWebBridge()

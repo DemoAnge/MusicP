@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,14 +47,22 @@ fun MiniPlayer(
     onReopenBridge: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val track = playerState.currentTrack ?: return
+    val track = playerState.currentTrack
+    val palette = rememberArtworkPalette(track)
+    if (track == null) return
     val web = track.source == PlaybackSource.WEB
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(SurfaceElevated),
+            .background(SurfaceElevated)
+            .background(
+                Brush.horizontalGradient(
+                    colors = palette.take(2).ifEmpty { listOf(SurfaceElevated, SurfaceElevated) }
+                        .map { it.copy(alpha = 0.55f) },
+                ),
+            ),
     ) {
         if (web && !playerState.webBridgeConnected) {
             Text(

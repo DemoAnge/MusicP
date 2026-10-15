@@ -18,6 +18,8 @@ class FakeLibraryPrefsRepository : LibraryPrefsRepository {
     private val history = MutableStateFlow<List<String>>(emptyList())
     private val speed = MutableStateFlow(1f)
     private val audio = MutableStateFlow(LocalAudioPrefs())
+    private val lyricsOffsets = MutableStateFlow<Map<String, Long>>(emptyMap())
+    private val karaoke = MutableStateFlow(false)
     private var nextId = 1
 
     override fun observeFavoriteIds() = favorites
@@ -159,5 +161,20 @@ class FakeLibraryPrefsRepository : LibraryPrefsRepository {
 
     override suspend fun setEqPreset(preset: EqPreset) {
         audio.value = audio.value.copy(eqPreset = preset)
+    }
+
+    override fun observeLyricsOffsets() = lyricsOffsets
+
+    override suspend fun setLyricsOffset(trackId: String, offsetMs: Long) {
+        val next = lyricsOffsets.value.toMutableMap()
+        val clamped = com.example.music.domain.player.LyricsTimingOps.clamp(offsetMs)
+        if (clamped == 0L) next.remove(trackId) else next[trackId] = clamped
+        lyricsOffsets.value = next
+    }
+
+    override fun observeKaraoke() = karaoke
+
+    override suspend fun setKaraoke(enabled: Boolean) {
+        karaoke.value = enabled
     }
 }

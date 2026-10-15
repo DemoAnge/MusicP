@@ -41,4 +41,8 @@ interface LibraryPrefsRepository {
     suspend fun setNormalizeVolume(enabled: Boolean)
     suspend fun setCrossfadeEnabled(enabled: Boolean)
     suspend fun setEqPreset(preset: EqPreset)
+    fun observeLyricsOffsets(): Flow<Map<String, Long>>
+    suspend fun setLyricsOffset(trackId: String, offsetMs: Long)
+    fun observeKaraoke(): Flow<Boolean>
+    suspend fun setKaraoke(enabled: Boolean)
 }

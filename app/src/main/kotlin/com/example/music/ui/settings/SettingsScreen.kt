@@ -51,6 +51,7 @@ fun SettingsScreen(
     val scanPrefs by viewModel.scanPrefs.collectAsStateWithLifecycle()
     val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
     val localAudio by viewModel.localAudio.collectAsStateWithLifecycle()
+    val karaoke by viewModel.karaoke.collectAsStateWithLifecycle()
     BackHandler(onBack = onBack)
 
     Column(
@@ -217,6 +218,13 @@ fun SettingsScreen(
                 "El temporizador de sueño está en Ahora suena.",
             color = ArtistGray,
             style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(12.dp))
+        ScanSwitch(
+            title = "Modo karaoke",
+            body = "Línea actual enorme en Ahora suena. En conducción queda en una sola línea.",
+            checked = karaoke,
+            onCheckedChange = viewModel::setKaraoke,
         )
         Spacer(Modifier.height(12.dp))
         Button(

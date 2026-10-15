@@ -38,6 +38,8 @@ import androidx.compose.material.icons.outlined.Lyrics
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,11 +59,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
@@ -75,9 +79,12 @@ import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.RepeatMode
 import com.example.music.domain.model.SleepOption
+import com.example.music.domain.player.LyricsDisplayOps
+import com.example.music.domain.player.LyricsTimingOps
 import com.example.music.domain.player.WebBridgeOps
 import com.example.music.ui.components.AlbumArt
 import com.example.music.ui.components.ThinSeekBar
+import com.example.music.ui.components.rememberArtworkPalette
 import com.example.music.ui.components.formatMs
 import com.example.music.ui.driving.sleepRemainingLabel
 import com.example.music.ui.voice.VoiceMicButton
@@ -94,15 +101,17 @@ fun NowPlayingScreen(
 ) {
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
     val lyrics by viewModel.lyrics.collectAsStateWithLifecycle()
-    val palette by viewModel.palette.collectAsStateWithLifecycle()
     val showLyrics by viewModel.showLyrics.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
+    val lyricsOffset by viewModel.lyricsOffset.collectAsStateWithLifecycle()
+    val karaoke by viewModel.karaoke.collectAsStateWithLifecycle()
     val voiceVm = rememberActivityVoiceViewModel()
     val voiceUi by voiceVm.ui.collectAsStateWithLifecycle()
     val openQueue by voiceVm.openQueue.collectAsStateWithLifecycle()
     var showQueue by remember { mutableStateOf(false) }
     var showSleep by remember { mutableStateOf(false) }
     val track = playerState.currentTrack
+    val palette = rememberArtworkPalette(track)
     LaunchedEffect(openQueue) {
         if (openQueue) {
             showQueue = true
@@ -236,16 +245,40 @@ fun NowPlayingScreen(
                 AlbumArt(track = track, size = artSize)
                 Spacer(Modifier.height(8.dp))
                 if (lines.isNotEmpty()) {
-                    SyncedLyricsView(
-                        lines = lines,
-                        positionMs = playerState.positionMs,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
+                    LyricsOffsetRow(
+                        offsetMs = lyricsOffset,
+                        onNudge = viewModel::nudgeLyricsOffset,
+                    )
+                    if (karaoke) {
+                        KaraokeCurrentLine(
+                            text = lyrics?.lineAt(playerState.positionMs, lyricsOffset)?.text.orEmpty(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                        )
+                    } else {
+                        SyncedLyricsView(
+                            lines = lines,
+                            positionMs = playerState.positionMs,
+                            offsetMs = lyricsOffset,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                        )
+                    }
+                    FilterChip(
+                        selected = karaoke,
+                        onClick = viewModel::toggleKaraoke,
+                        label = { Text("Karaoke") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Accent,
+                            selectedLabelColor = Color.White,
+                            labelColor = OnBackground,
+                        ),
                     )
                 } else {
                     Text(
-                        text = plain.orEmpty(),
+                        text = LyricsDisplayOps.unsyncedBody(lyrics).ifBlank { plain.orEmpty() },
                         color = OnBackground,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
@@ -532,12 +565,58 @@ private fun TransportIcon(
 }
 
 @Composable
+private fun LyricsOffsetRow(
+    offsetMs: Long,
+    onNudge: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(onClick = { onNudge(-1) }) {
+            Text("−0,5 s", color = Accent)
+        }
+        Text(
+            text = LyricsTimingOps.label(offsetMs),
+            color = ArtistGray,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        )
+        TextButton(onClick = { onNudge(1) }) {
+            Text("+0,5 s", color = Accent)
+        }
+    }
+}
+
+@Composable
+private fun KaraokeCurrentLine(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Text(
+            text = text.ifBlank { "…" },
+            color = Accent,
+            fontSize = 32.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
 private fun SyncedLyricsView(
     lines: List<LyricsLine>,
     positionMs: Long,
+    offsetMs: Long,
     modifier: Modifier = Modifier,
 ) {
-    val currentIndex = lines.indexOfLast { it.timeMs <= positionMs }.coerceAtLeast(0)
+    val t = positionMs + offsetMs
+    val currentIndex = lines.indexOfLast { it.timeMs <= t }.coerceAtLeast(0)
     val listState = rememberLazyListState()
     LaunchedEffect(currentIndex) {
         listState.animateScrollToItem(currentIndex)

@@ -40,6 +40,8 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
     private val scanPrefs = MutableStateFlow(readScanPrefs())
     private val playbackSpeed = MutableStateFlow(readPlaybackSpeed())
     private val localAudio = MutableStateFlow(readLocalAudio())
+    private val lyricsOffsets = MutableStateFlow(readLyricsOffsets())
+    private val karaoke = MutableStateFlow(prefs.getBoolean(KEY_KARAOKE, false))
 
     override fun observeFavoriteIds(): Flow<Set<String>> = favorites.asStateFlow()
 
@@ -300,6 +302,28 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         updateLocalAudio { it.copy(eqPreset = preset) }
     }
 
+    override fun observeLyricsOffsets(): Flow<Map<String, Long>> = lyricsOffsets.asStateFlow()
+
+    override suspend fun setLyricsOffset(trackId: String, offsetMs: Long) {
+        if (trackId.isBlank()) return
+        mutex.withLock {
+            val next = lyricsOffsets.value.toMutableMap()
+            val clamped = com.example.music.domain.player.LyricsTimingOps.clamp(offsetMs)
+            if (clamped == 0L) next.remove(trackId) else next[trackId] = clamped
+            lyricsOffsets.value = next
+            prefs.edit().putString(KEY_LYRICS_OFFSETS, gson.toJson(next)).apply()
+        }
+    }
+
+    override fun observeKaraoke(): Flow<Boolean> = karaoke.asStateFlow()
+
+    override suspend fun setKaraoke(enabled: Boolean) {
+        mutex.withLock {
+            karaoke.value = enabled
+            prefs.edit().putBoolean(KEY_KARAOKE, enabled).apply()
+        }
+    }
+
     private suspend fun updateLocalAudio(transform: (LocalAudioPrefs) -> LocalAudioPrefs) {
         mutex.withLock {
             val next = transform(localAudio.value)
@@ -342,6 +366,14 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         )
     }
 
+    private fun readLyricsOffsets(): Map<String, Long> {
+        val json = prefs.getString(KEY_LYRICS_OFFSETS, "").orEmpty()
+        if (json.isBlank()) return emptyMap()
+        val type = object : TypeToken<Map<String, Long>>() {}.type
+        return runCatching { gson.fromJson<Map<String, Long>>(json, type).orEmpty() }
+            .getOrDefault(emptyMap())
+    }
+
     private companion object {
         const val PREFS_NAME = "library_prefs"
         const val KEY_FAVORITES = "favorite_ids"
@@ -359,6 +391,8 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         const val KEY_NORMALIZE = "normalize_volume"
         const val KEY_CROSSFADE = "crossfade_enabled"
         const val KEY_EQ_PRESET = "eq_preset"
+        const val KEY_LYRICS_OFFSETS = "lyrics_offsets_json"
+        const val KEY_KARAOKE = "karaoke_mode"
         const val MAX_RECENTS = 80
         const val MAX_SEARCH_HISTORY = 12
     }

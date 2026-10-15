@@ -10,8 +10,15 @@ data class SyncedLyrics(
     val lines: List<LyricsLine>,
     val plainText: String?,
 ) {
-    fun lineAt(positionMs: Long): LyricsLine? {
+    fun lineAt(positionMs: Long, offsetMs: Long = 0L): LyricsLine? {
         if (lines.isEmpty()) return null
-        return lines.lastOrNull { it.timeMs <= positionMs } ?: lines.first()
+        val t = positionMs + offsetMs
+        return lines.lastOrNull { it.timeMs <= t } ?: lines.first()
+    }
+
+    fun lineIndexAt(positionMs: Long, offsetMs: Long = 0L): Int {
+        if (lines.isEmpty()) return -1
+        val t = positionMs + offsetMs
+        return lines.indexOfLast { it.timeMs <= t }.coerceAtLeast(0)
     }
 }

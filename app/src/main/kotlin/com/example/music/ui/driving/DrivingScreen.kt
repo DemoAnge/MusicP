@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
@@ -48,6 +49,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.music.core.theme.Accent
 import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.OnBackground
+import com.example.music.domain.player.LyricsDisplayOps
+import com.example.music.ui.components.rememberArtworkPalette
 import com.example.music.ui.voice.VoiceMicButton
 import com.example.music.ui.voice.rememberActivityVoiceViewModel
 import kotlinx.coroutines.delay
@@ -62,7 +65,10 @@ fun DrivingScreen(
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
     val showLyrics by viewModel.showLyrics.collectAsStateWithLifecycle()
     val lyrics by viewModel.lyrics.collectAsStateWithLifecycle()
+    val lyricsOffset by viewModel.lyricsOffset.collectAsStateWithLifecycle()
+    val karaoke by viewModel.karaoke.collectAsStateWithLifecycle()
     val track = playerState.currentTrack
+    val palette = rememberArtworkPalette(track)
     val view = LocalView.current
     val voiceVm = rememberActivityVoiceViewModel()
     val voiceUi by voiceVm.ui.collectAsStateWithLifecycle()
@@ -82,10 +88,20 @@ fun DrivingScreen(
         }
     }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
+            .background(
+                Brush.verticalGradient(
+                    colors = palette.ifEmpty { listOf(Color.Black, Color.Black) }
+                        .map { it.copy(alpha = 0.45f) } + Color.Black,
+                ),
+            ),
+    ) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
             .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -176,14 +192,18 @@ fun DrivingScreen(
             contentAlignment = Alignment.Center,
         ) {
             if (showLyrics) {
-                val line = lyrics?.lineAt(playerState.positionMs)?.text
+                val line = if (LyricsDisplayOps.hasSynced(lyrics)) {
+                    lyrics?.lineAt(playerState.positionMs, lyricsOffset)?.text
+                } else {
+                    LyricsDisplayOps.unsyncedBody(lyrics).ifBlank { null }
+                }
                 Text(
                     text = line?.ifBlank { null } ?: "Sin letras",
                     color = OnBackground,
-                    fontSize = 36.sp,
+                    fontSize = if (karaoke) 52.sp else 36.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
-                    maxLines = 4,
+                    maxLines = if (karaoke) 1 else 4,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -254,6 +274,7 @@ fun DrivingScreen(
                 )
             }
         }
+    }
     }
 }
 

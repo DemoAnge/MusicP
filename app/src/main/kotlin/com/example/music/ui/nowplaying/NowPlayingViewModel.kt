@@ -1,29 +1,19 @@
 package com.example.music.ui.nowplaying
 
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
-import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.palette.graphics.Palette
-import com.example.music.core.theme.Background
-import com.example.music.core.theme.Accent
-import com.example.music.core.theme.Surface
 import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.SleepOption
 import com.example.music.domain.model.SyncedLyrics
 import com.example.music.domain.model.next
+import com.example.music.domain.player.LyricsTimingOps
 import com.example.music.domain.usecase.ControlPlaybackUseCase
 import com.example.music.domain.usecase.GetSyncedLyricsUseCase
 import com.example.music.domain.usecase.ObserveLibraryPrefsUseCase
 import com.example.music.domain.usecase.ObservePlayerStateUseCase
 import com.example.music.domain.usecase.ToggleFavoriteUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -33,15 +23,13 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class NowPlayingViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
     observePlayerState: ObservePlayerStateUseCase,
     private val controls: ControlPlaybackUseCase,
     private val getSyncedLyrics: GetSyncedLyricsUseCase,
-    observePrefs: ObserveLibraryPrefsUseCase,
+    private val observePrefs: ObserveLibraryPrefsUseCase,
     private val toggleFavorite: ToggleFavoriteUseCase,
 ) : ViewModel() {
 
@@ -54,11 +42,21 @@ class NowPlayingViewModel @Inject constructor(
     private val _lyrics = MutableStateFlow<SyncedLyrics?>(null)
     val lyrics: StateFlow<SyncedLyrics?> = _lyrics.asStateFlow()
 
-    private val _palette = MutableStateFlow(listOf(Background, Surface))
-    val palette: StateFlow<List<Color>> = _palette.asStateFlow()
-
     private val _showLyrics = MutableStateFlow(false)
     val showLyrics: StateFlow<Boolean> = _showLyrics.asStateFlow()
+
+    val lyricsOffset: StateFlow<Long> = combine(
+        playerState.map { it.currentTrack?.id },
+        observePrefs.lyricsOffsets(),
+    ) { id, map ->
+        id?.let { map[it] } ?: 0L
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
+    val karaoke: StateFlow<Boolean> = observePrefs.karaoke().stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        false,
+    )
 
     val isFavorite: StateFlow<Boolean> = combine(
         playerState.map { it.currentTrack?.id },
@@ -76,11 +74,8 @@ class NowPlayingViewModel @Inject constructor(
                     if (track == null) {
                         _lyrics.value = null
                         _showLyrics.value = false
-                        _palette.value = listOf(Background, Surface)
                     } else {
                         _lyrics.value = runCatching { getSyncedLyrics(track) }.getOrNull()
-                        _palette.value = runCatching { extractPalette(track.artworkUri) }
-                            .getOrDefault(listOf(Background, Surface))
                     }
                 }
         }
@@ -111,67 +106,14 @@ class NowPlayingViewModel @Inject constructor(
     fun reopenWebBridge() = controls.reopenWebBridge()
     fun setSleepTimer(option: SleepOption) = controls.setSleepTimer(option)
 
-    private suspend fun extractPalette(artworkUri: String?): List<Color> = withContext(Dispatchers.IO) {
-        if (artworkUri.isNullOrBlank()) return@withContext listOf(Background, Surface)
-        val bitmap = decodeBitmap(artworkUri) ?: return@withContext listOf(Background, Surface)
-        try {
-            val palette = Palette.from(bitmap).clearFilters().generate()
-            val dominant = palette.dominantSwatch?.rgb?.let(::Color) ?: Background
-            val dark = palette.darkMutedSwatch?.rgb?.let(::Color)
-                ?: palette.darkVibrantSwatch?.rgb?.let(::Color)
-                ?: Surface
-            val accent = palette.vibrantSwatch?.rgb?.let(::Color) ?: Accent
-            listOf(dominant.copy(alpha = 0.95f), dark.copy(alpha = 0.95f), accent.copy(alpha = 0.35f))
-        } finally {
-            if (!bitmap.isRecycled) bitmap.recycle()
-        }
+    fun nudgeLyricsOffset(steps: Int) {
+        val id = playerState.value.currentTrack?.id ?: return
+        val next = LyricsTimingOps.nudge(lyricsOffset.value, steps)
+        viewModelScope.launch { runCatching { observePrefs.setLyricsOffset(id, next) } }
     }
 
-    private fun decodeBitmap(artworkUri: String): Bitmap? {
-        if (artworkUri.isBlank() || artworkUri == "0" || artworkUri.endsWith("/albumart/0")) return null
-        return runCatching {
-            when {
-                artworkUri.startsWith("http") ->
-                    java.net.URL(artworkUri).openStream().use { stream ->
-                        decodeSampled(stream.readBytes(), TARGET_ART)
-                    }
-                artworkUri.startsWith("file:") -> {
-                    val path = Uri.parse(artworkUri).path ?: return@runCatching null
-                    decodeFileSampled(path, TARGET_ART)
-                }
-                else -> context.contentResolver.openInputStream(Uri.parse(artworkUri))?.use { stream ->
-                    decodeSampled(stream.readBytes(), TARGET_ART)
-                }
-            }
-        }.getOrNull()
-    }
-
-    private fun decodeFileSampled(path: String, target: Int): Bitmap? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(path, bounds)
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, target)
-        }
-        return BitmapFactory.decodeFile(path, options)
-    }
-
-    private fun decodeSampled(bytes: ByteArray, target: Int): Bitmap? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, target)
-        }
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-    }
-
-    private fun sampleSize(width: Int, height: Int, target: Int): Int {
-        var size = 1
-        val largest = maxOf(width, height).coerceAtLeast(1)
-        while (largest / size > target * 2) size *= 2
-        return size
-    }
-
-    private companion object {
-        const val TARGET_ART = 320
+    fun toggleKaraoke() {
+        val next = !karaoke.value
+        viewModelScope.launch { runCatching { observePrefs.setKaraoke(next) } }
     }
 }
