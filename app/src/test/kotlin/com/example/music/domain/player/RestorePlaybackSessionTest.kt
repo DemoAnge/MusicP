@@ -52,6 +52,21 @@ class RestorePlaybackSessionTest {
     }
 
     @Test
+    fun shuffledQueueAndOriginalStayAligned() {
+        val session = PlaybackSession(
+            queue = listOf(localB, localA),
+            originalQueue = listOf(localA, localB),
+            queueIndex = 0,
+            isShuffleEnabled = true,
+        )
+        val restored = RestorePlaybackSession.restore(session) { true }!!
+        assertEquals(listOf("b", "a"), restored.playable.map { it.id })
+        assertEquals(listOf("a", "b"), restored.original.map { it.id })
+        assertEquals(true, restored.isShuffleEnabled)
+        assertEquals(0, restored.index)
+    }
+
+    @Test
     fun webTracksStayPlayable() {
         val session = PlaybackSession(
             queue = listOf(web, localA),

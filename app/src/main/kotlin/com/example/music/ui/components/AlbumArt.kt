@@ -40,17 +40,18 @@ fun AlbumArt(
     isVideo: Boolean = false,
 ) {
     val context = LocalContext.current
-    var resolved by remember(trackId, mediaUri, artworkUri) { mutableStateOf<String?>(null) }
+    val fallback = remember(artworkUri) { usableArtwork(artworkUri) }
+    var resolved by remember(trackId, mediaUri, artworkUri) { mutableStateOf(fallback) }
     var failed by remember(trackId, resolved) { mutableStateOf(false) }
 
-    LaunchedEffect(trackId, mediaUri) {
-        resolved = if (!trackId.isNullOrBlank() && !mediaUri.isNullOrBlank()) {
+    LaunchedEffect(trackId, mediaUri, artworkUri) {
+        failed = false
+        val embedded = if (!trackId.isNullOrBlank() && !mediaUri.isNullOrBlank()) {
             runCatching { EmbeddedArtwork.resolve(context, trackId, mediaUri, isVideo) }.getOrNull()
         } else {
             null
-        } ?: artworkUri?.takeIf { uri ->
-            uri.isNotBlank() && uri != "0" && !uri.endsWith("/albumart/0") && !uri.contains("/albumart/")
         }
+        resolved = embedded ?: fallback
     }
 
     val model = resolved
@@ -99,4 +100,10 @@ fun AlbumArt(
         mediaUri = track.mediaUri,
         isVideo = track.isVideo,
     )
+}
+
+private fun usableArtwork(uri: String?): String? {
+    if (uri.isNullOrBlank() || uri == "0") return null
+    if (uri.endsWith("/albumart/0")) return null
+    return uri
 }

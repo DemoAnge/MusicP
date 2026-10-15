@@ -42,7 +42,15 @@ class PlaybackQueueOpsTest {
         assertEquals(listOf("a", "c", "b"), mutation.queue.map { it.id })
         assertEquals(0, mutation.currentIndex)
         assertEquals(1, mutation.insertIndex)
+        assertEquals(listOf("a", "c", "b"), mutation.originalQueue.map { it.id })
+    }
+
+    @Test
+    fun playNextManyKeepsIncomingOrder() {
+        val mutation = PlaybackQueueOps.playNext(listOf(b, c), listOf(a), listOf(a), currentId = "a")!!
+        assertEquals(listOf("a", "b", "c"), mutation.queue.map { it.id })
         assertEquals(listOf("a", "b", "c"), mutation.originalQueue.map { it.id })
+        assertEquals(1, mutation.insertIndex)
     }
 
     @Test
@@ -72,6 +80,22 @@ class PlaybackQueueOpsTest {
         val mutation = PlaybackQueueOps.move(listOf(a, b, c), fromIndex = 2, toIndex = 0, currentId = "c", fallbackIndex = 2)!!
         assertEquals(listOf("c", "a", "b"), mutation.queue.map { it.id })
         assertEquals(0, mutation.currentIndex)
+        assertEquals(listOf("c", "a", "b"), mutation.originalQueue.map { it.id })
+    }
+
+    @Test
+    fun moveWhileShuffledKeepsOriginalOrder() {
+        val mutation = PlaybackQueueOps.move(
+            queue = listOf(c, a, b),
+            fromIndex = 2,
+            toIndex = 1,
+            currentId = "c",
+            fallbackIndex = 0,
+            originalQueue = listOf(a, b, c),
+            shuffleEnabled = true,
+        )!!
+        assertEquals(listOf("c", "b", "a"), mutation.queue.map { it.id })
+        assertEquals(listOf("a", "b", "c"), mutation.originalQueue.map { it.id })
     }
 
     @Test

@@ -41,9 +41,12 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SelectAll
@@ -92,6 +95,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.OnBackground
 import com.example.music.core.theme.Accent
@@ -132,6 +137,8 @@ fun LibraryScreen(
     var showCreatePlaylist by remember { mutableStateOf(false) }
     var createPlaylistName by remember { mutableStateOf("") }
     var showDeletePlaylist by remember { mutableStateOf(false) }
+    var showRenamePlaylist by remember { mutableStateOf(false) }
+    var renamePlaylistName by remember { mutableStateOf("") }
 
     val mediaPermissions = remember {
         if (Build.VERSION.SDK_INT >= 33) {
@@ -196,6 +203,28 @@ fun LibraryScreen(
         val text = notice ?: return@LaunchedEffect
         snackbar.showSnackbar(text)
         viewModel.consumeNotice()
+    }
+
+    LaunchedEffect(ui.groups, ui.visibleTracks, ui.homeAlbums) {
+        val covers = buildList {
+            addAll(ui.groups.mapNotNull { it.coverTrack() })
+            addAll(ui.homeAlbums.mapNotNull { it.coverTrack() })
+            addAll(ui.visibleTracks.take(24))
+            addAll(ui.homeRecents.take(8))
+            addAll(ui.homeLiked.take(8))
+        }.distinctBy { it.id }.take(16)
+        withContext(Dispatchers.IO) {
+            covers.forEach { track ->
+                runCatching {
+                    com.example.music.data.local_music.EmbeddedArtwork.resolve(
+                        context,
+                        track.id,
+                        track.mediaUri,
+                        track.isVideo,
+                    )
+                }
+            }
+        }
     }
 
     BackHandler(enabled = ui.selecting || ui.pickingForPlaylist || ui.selectedGroupKey != null) {
@@ -287,6 +316,16 @@ fun LibraryScreen(
                         )
                     }
                     IconButton(
+                        onClick = viewModel::playSelectedNext,
+                        enabled = ui.selectedIds.isNotEmpty(),
+                    ) {
+                        Icon(
+                            Icons.Filled.QueuePlayNext,
+                            contentDescription = "Reproducir a continuación",
+                            tint = if (ui.selectedIds.isEmpty()) ArtistGray else OnBackground,
+                        )
+                    }
+                    IconButton(
                         onClick = viewModel::addSelectedToQueue,
                         enabled = ui.selectedIds.isNotEmpty(),
                     ) {
@@ -308,6 +347,12 @@ fun LibraryScreen(
                     }
                 } else {
                     if (ui.selectedPlaylistId != null) {
+                        IconButton(onClick = {
+                            renamePlaylistName = ui.selectedGroupTitle.orEmpty()
+                            showRenamePlaylist = true
+                        }) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Renombrar lista", tint = OnBackground)
+                        }
                         IconButton(onClick = viewModel::startAddToPlaylist) {
                             Icon(
                                 Icons.AutoMirrored.Filled.PlaylistAdd,
@@ -469,23 +514,37 @@ fun LibraryScreen(
                                     title = ui.selectedGroupTitle.orEmpty(),
                                     subtitle = ui.selectedGroupSubtitle ?: ui.countLabel,
                                     artworkUri = ui.selectedGroupArtwork,
-                                    firstTrack = ui.visibleTracks.firstOrNull(),
+                                    firstTrack = ui.visibleTracks.firstOrNull { !it.artworkUri.isNullOrBlank() }
+                                        ?: ui.visibleTracks.firstOrNull(),
                                     onPlay = viewModel::playAll,
                                     onShuffle = viewModel::shuffleAll,
                                 )
                                 if (ui.selectedPlaylistId != null) {
                                     Spacer(Modifier.height(8.dp))
-                                    OutlinedButton(
-                                        onClick = viewModel::startAddToPlaylist,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        Icon(
-                                            Icons.AutoMirrored.Filled.PlaylistAdd,
-                                            contentDescription = null,
-                                            tint = Accent,
-                                        )
-                                        Spacer(Modifier.width(8.dp))
-                                        Text("Agregar canciones", color = OnBackground)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedButton(
+                                            onClick = viewModel::startAddToPlaylist,
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.PlaylistAdd,
+                                                contentDescription = null,
+                                                tint = Accent,
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Text("Agregar", color = OnBackground)
+                                        }
+                                        OutlinedButton(
+                                            onClick = {
+                                                renamePlaylistName = ui.selectedGroupTitle.orEmpty()
+                                                showRenamePlaylist = true
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Icon(Icons.Filled.Edit, contentDescription = null, tint = Accent)
+                                            Spacer(Modifier.width(8.dp))
+                                            Text("Renombrar", color = OnBackground)
+                                        }
                                     }
                                 }
                                 Spacer(Modifier.height(8.dp))
@@ -539,8 +598,9 @@ fun LibraryScreen(
                                     itemsIndexed(
                                         ui.visibleTracks,
                                         key = { index, track -> "t:$index:${track.id}:${track.mediaUri}" },
-                                    ) { _, track ->
+                                    ) { index, track ->
                                         val isCurrent = playerState.currentTrack?.id == track.id
+                                        val inPlaylist = ui.selectedPlaylistId != null && !ui.selecting && !ui.pickingForPlaylist
                                         TrackRow(
                                             track = track,
                                             isCurrent = isCurrent,
@@ -559,6 +619,16 @@ fun LibraryScreen(
                                             },
                                             onToggleFavorite = { viewModel.toggleLiked(track.id) },
                                             onPlayNext = { viewModel.playNext(track) },
+                                            onMoveUp = if (inPlaylist && index > 0) {
+                                                { viewModel.movePlaylistTrack(index, index - 1) }
+                                            } else {
+                                                null
+                                            },
+                                            onMoveDown = if (inPlaylist && index < ui.visibleTracks.lastIndex) {
+                                                { viewModel.movePlaylistTrack(index, index + 1) }
+                                            } else {
+                                                null
+                                            },
                                             onMore = { menuTrack = track },
                                         )
                                     }
@@ -634,6 +704,44 @@ fun LibraryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeletePlaylist = false }) {
+                    Text("Cancelar", color = OnBackground)
+                }
+            },
+        )
+    }
+
+    if (showRenamePlaylist) {
+        AlertDialog(
+            onDismissRequest = { showRenamePlaylist = false },
+            containerColor = SurfaceElevated,
+            title = { Text("Renombrar lista", color = OnBackground) },
+            text = {
+                OutlinedTextField(
+                    value = renamePlaylistName,
+                    onValueChange = { renamePlaylistName = it },
+                    singleLine = true,
+                    placeholder = { Text("Nombre") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Accent,
+                        focusedTextColor = OnBackground,
+                        unfocusedTextColor = OnBackground,
+                        cursorColor = Accent,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val name = renamePlaylistName
+                        showRenamePlaylist = false
+                        viewModel.renameCurrentPlaylist(name)
+                    },
+                ) {
+                    Text("Guardar", color = Accent)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenamePlaylist = false }) {
                     Text("Cancelar", color = OnBackground)
                 }
             },
@@ -893,7 +1001,7 @@ private fun GroupHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AlbumArt(
-            artworkUri = artworkUri,
+            artworkUri = firstTrack?.artworkUri ?: artworkUri,
             contentDescription = title,
             size = 120.dp,
             trackId = firstTrack?.id,
@@ -1063,19 +1171,19 @@ private fun AlbumTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val first = group.tracks.firstOrNull()
+    val cover = group.coverTrack()
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick),
     ) {
         AlbumArt(
-            artworkUri = group.artworkUri,
+            artworkUri = cover?.artworkUri ?: group.artworkUri,
             contentDescription = group.title,
             size = 156.dp,
-            trackId = first?.id,
-            mediaUri = first?.mediaUri,
-            isVideo = first?.isVideo == true,
+            trackId = cover?.id,
+            mediaUri = cover?.mediaUri,
+            isVideo = cover?.isVideo == true,
         )
         Spacer(Modifier.height(8.dp))
         Text(
@@ -1123,13 +1231,14 @@ private fun GroupRow(
                     .size(24.dp),
             )
         }
+        val cover = group.coverTrack()
         AlbumArt(
-            artworkUri = group.artworkUri,
+            artworkUri = cover?.artworkUri ?: group.artworkUri,
             contentDescription = group.title,
             size = 56.dp,
-            trackId = group.tracks.firstOrNull()?.id,
-            mediaUri = group.tracks.firstOrNull()?.mediaUri,
-            isVideo = group.tracks.firstOrNull()?.isVideo == true,
+            trackId = cover?.id,
+            mediaUri = cover?.mediaUri,
+            isVideo = cover?.isVideo == true,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -1199,6 +1308,8 @@ fun TrackRow(
     onLongClick: (() -> Unit)? = null,
     onToggleFavorite: (() -> Unit)? = null,
     onPlayNext: (() -> Unit)? = null,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
     onMore: (() -> Unit)? = null,
 ) {
     Row(
@@ -1252,7 +1363,25 @@ fun TrackRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (!selecting && onPlayNext != null) {
+        if (!selecting && onMoveUp != null) {
+            IconButton(onClick = onMoveUp, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowUp,
+                    contentDescription = "Subir",
+                    tint = OnBackground,
+                )
+            }
+        }
+        if (!selecting && onMoveDown != null) {
+            IconButton(onClick = onMoveDown, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowDown,
+                    contentDescription = "Bajar",
+                    tint = OnBackground,
+                )
+            }
+        }
+        if (!selecting && onPlayNext != null && onMoveUp == null && onMoveDown == null) {
             IconButton(
                 onClick = onPlayNext,
                 modifier = Modifier.size(36.dp),

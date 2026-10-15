@@ -1,6 +1,7 @@
 package com.example.music.data.library
 
 import android.content.Context
+import com.example.music.domain.model.LibraryScanPrefs
 import com.example.music.domain.model.UserPlaylist
 import com.example.music.domain.repository.LibraryPrefsRepository
 import com.google.gson.Gson
@@ -34,6 +35,7 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
     private val searchHistory = MutableStateFlow(readSearchHistory())
     private val playlists = MutableStateFlow(readPlaylists())
     private val ignoredFolders = MutableStateFlow(readIgnoredFolders())
+    private val scanPrefs = MutableStateFlow(readScanPrefs())
     private val playbackSpeed = MutableStateFlow(readPlaybackSpeed())
 
     override fun observeFavoriteIds(): Flow<Set<String>> = favorites.asStateFlow()
@@ -187,6 +189,35 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun renamePlaylist(id: String, name: String): UserPlaylist? {
+        val trimmed = name.trim()
+        if (id.isBlank() || trimmed.isEmpty()) return null
+        return mutex.withLock {
+            var renamed: UserPlaylist? = null
+            val next = playlists.value.map { playlist ->
+                if (playlist.id != id) playlist
+                else playlist.copy(name = trimmed).also { renamed = it }
+            }
+            if (renamed == null) return@withLock null
+            playlists.value = next
+            prefs.edit().putString(KEY_PLAYLISTS, gson.toJson(next)).apply()
+            renamed
+        }
+    }
+
+    override suspend fun setPlaylistTrackIds(playlistId: String, trackIds: List<String>) {
+        if (playlistId.isBlank()) return
+        val ordered = trackIds.filter { it.isNotBlank() }.distinct()
+        mutex.withLock {
+            val next = playlists.value.map { playlist ->
+                if (playlist.id != playlistId) playlist
+                else playlist.copy(trackIds = ordered)
+            }
+            playlists.value = next
+            prefs.edit().putString(KEY_PLAYLISTS, gson.toJson(next)).apply()
+        }
+    }
+
     override fun observeIgnoredFolders(): Flow<Set<String>> = ignoredFolders.asStateFlow()
 
     override suspend fun setFolderIgnored(folderPath: String, ignored: Boolean) {
@@ -222,6 +253,26 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
             .map { playlist -> playlist.copy(trackIds = playlist.trackIds.distinct()) }
     }
 
+    override fun observeScanPrefs(): Flow<LibraryScanPrefs> = scanPrefs.asStateFlow()
+
+    override suspend fun setShowHidden(enabled: Boolean) = setScan { it.copy(showHidden = enabled) }
+
+    override suspend fun setShowPodcasts(enabled: Boolean) = setScan { it.copy(showPodcasts = enabled) }
+
+    override suspend fun setShowAudiobooks(enabled: Boolean) = setScan { it.copy(showAudiobooks = enabled) }
+
+    private suspend fun setScan(transform: (LibraryScanPrefs) -> LibraryScanPrefs) {
+        mutex.withLock {
+            val next = transform(scanPrefs.value)
+            scanPrefs.value = next
+            prefs.edit()
+                .putBoolean(KEY_SHOW_HIDDEN, next.showHidden)
+                .putBoolean(KEY_SHOW_PODCASTS, next.showPodcasts)
+                .putBoolean(KEY_SHOW_AUDIOBOOKS, next.showAudiobooks)
+                .apply()
+        }
+    }
+
     override fun observePlaybackSpeed(): Flow<Float> = playbackSpeed.asStateFlow()
 
     override suspend fun setPlaybackSpeed(speed: Float) {
@@ -235,6 +286,12 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
     private fun readIgnoredFolders(): Set<String> =
         prefs.getStringSet(KEY_IGNORED_FOLDERS, emptySet())?.toSet().orEmpty()
 
+    private fun readScanPrefs(): LibraryScanPrefs = LibraryScanPrefs(
+        showHidden = prefs.getBoolean(KEY_SHOW_HIDDEN, false),
+        showPodcasts = prefs.getBoolean(KEY_SHOW_PODCASTS, false),
+        showAudiobooks = prefs.getBoolean(KEY_SHOW_AUDIOBOOKS, false),
+    )
+
     private fun readPlaybackSpeed(): Float =
         prefs.getFloat(KEY_PLAYBACK_SPEED, 1f).coerceIn(0.8f, 1.5f)
 
@@ -247,6 +304,9 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         const val KEY_SEARCH_HISTORY = "search_history"
         const val KEY_PLAYLISTS = "user_playlists_json"
         const val KEY_IGNORED_FOLDERS = "ignored_folders"
+        const val KEY_SHOW_HIDDEN = "show_hidden_folders"
+        const val KEY_SHOW_PODCASTS = "show_podcasts"
+        const val KEY_SHOW_AUDIOBOOKS = "show_audiobooks"
         const val KEY_PLAYBACK_SPEED = "playback_speed"
         const val MAX_RECENTS = 80
         const val MAX_SEARCH_HISTORY = 12

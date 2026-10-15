@@ -1,5 +1,6 @@
 package com.example.music.domain.repository
 
+import com.example.music.domain.model.LibraryScanPrefs
 import com.example.music.domain.model.UserPlaylist
 import kotlinx.coroutines.flow.Flow
 
@@ -23,8 +24,14 @@ interface LibraryPrefsRepository {
     suspend fun addToPlaylist(playlistId: String, trackId: String)
     suspend fun addToPlaylist(playlistId: String, trackIds: List<String>)
     suspend fun removeFromPlaylist(playlistId: String, trackId: String)
+    suspend fun renamePlaylist(id: String, name: String): UserPlaylist?
+    suspend fun setPlaylistTrackIds(playlistId: String, trackIds: List<String>)
     fun observeIgnoredFolders(): Flow<Set<String>>
     suspend fun setFolderIgnored(folderPath: String, ignored: Boolean)
+    fun observeScanPrefs(): Flow<LibraryScanPrefs>
+    suspend fun setShowHidden(enabled: Boolean)
+    suspend fun setShowPodcasts(enabled: Boolean)
+    suspend fun setShowAudiobooks(enabled: Boolean)
     fun observePlaybackSpeed(): Flow<Float>
     suspend fun setPlaybackSpeed(speed: Float)
 }

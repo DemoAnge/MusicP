@@ -25,6 +25,15 @@ data class LibraryGroup(
     val subtitle: String,
     val artworkUri: String?,
     val tracks: List<Track>,
+) {
+    fun coverTrack(): Track? =
+        tracks.firstOrNull { !it.artworkUri.isNullOrBlank() } ?: tracks.firstOrNull()
+}
+
+data class LibraryScanPrefs(
+    val showHidden: Boolean = false,
+    val showPodcasts: Boolean = false,
+    val showAudiobooks: Boolean = false,
 )
 
 data class LibraryPrefsSnapshot(
@@ -32,6 +41,7 @@ data class LibraryPrefsSnapshot(
     val recents: List<String> = emptyList(),
     val playlists: List<UserPlaylist> = emptyList(),
     val ignoredFolders: Set<String> = emptySet(),
+    val scan: LibraryScanPrefs = LibraryScanPrefs(),
 )
 
 data class LibraryBrowseQuery(
@@ -58,6 +68,7 @@ data class LibraryUiState(
     val homeAlbums: List<LibraryGroup> = emptyList(),
     val playlists: List<UserPlaylist> = emptyList(),
     val ignoredFolders: Set<String> = emptySet(),
+    val scan: LibraryScanPrefs = LibraryScanPrefs(),
     val favoriteIds: Set<String> = emptySet(),
     val countLabel: String = "",
     val selecting: Boolean = false,

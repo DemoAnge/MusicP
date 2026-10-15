@@ -13,6 +13,8 @@ sealed interface PlaylistMutation {
     data object AlreadyPresent : PlaylistMutation
     data object Deleted : PlaylistMutation
     data object TrackRemoved : PlaylistMutation
+    data class Renamed(val playlist: UserPlaylist) : PlaylistMutation
+    data object Reordered : PlaylistMutation
     data object Missing : PlaylistMutation
 }
 
@@ -49,5 +51,23 @@ class ManagePlaylistsUseCase @Inject constructor(
         if (playlistId.isBlank() || trackId.isBlank()) return PlaylistMutation.Missing
         prefs.removeFromPlaylist(playlistId, trackId)
         return PlaylistMutation.TrackRemoved
+    }
+
+    suspend fun rename(playlistId: String, name: String): PlaylistMutation {
+        if (playlistId.isBlank()) return PlaylistMutation.Missing
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return PlaylistMutation.BlankName
+        val renamed = prefs.renamePlaylist(playlistId, trimmed) ?: return PlaylistMutation.Missing
+        return PlaylistMutation.Renamed(renamed)
+    }
+
+    suspend fun reorderTracks(playlistId: String, fromIndex: Int, toIndex: Int): PlaylistMutation {
+        if (playlistId.isBlank()) return PlaylistMutation.Missing
+        val playlist = prefs.observePlaylists().first().firstOrNull { it.id == playlistId }
+            ?: return PlaylistMutation.Missing
+        val moved = LibraryCatalog.moveIds(playlist.trackIds, fromIndex, toIndex)
+            ?: return PlaylistMutation.Missing
+        prefs.setPlaylistTrackIds(playlistId, moved)
+        return PlaylistMutation.Reordered
     }
 }

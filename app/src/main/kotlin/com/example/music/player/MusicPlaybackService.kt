@@ -80,6 +80,7 @@ class MusicPlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        runCatching { coordinator.persistSessionBlocking() }
         val keepPlaying = runCatching {
             coordinator.state.value.isPlaying || run {
                 val player = localPlayer.exoPlayer
@@ -91,6 +92,7 @@ class MusicPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        runCatching { coordinator.persistSessionBlocking() }
         serviceScope.cancel()
         runCatching {
             mediaSession?.release()

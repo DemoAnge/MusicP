@@ -48,6 +48,7 @@ fun SettingsScreen(
 ) {
     val preferBrave by viewModel.preferBrave.collectAsStateWithLifecycle()
     val ignoredFolders by viewModel.ignoredFolders.collectAsStateWithLifecycle()
+    val scanPrefs by viewModel.scanPrefs.collectAsStateWithLifecycle()
     val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
     BackHandler(onBack = onBack)
 
@@ -174,9 +175,36 @@ fun SettingsScreen(
         Text("Biblioteca", style = MaterialTheme.typography.titleMedium, color = OnBackground)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Oculta una carpeta desde su pantalla (icono de ojo tachado). Aquí las vuelves a mostrar.",
+            "El escáner no copia archivos. Podcasts y audiolibros se detectan por carpeta, mime (m4b) o duración larga con “podcast”/“audiolibro” en el título.",
             color = ArtistGray,
             style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(12.dp))
+        ScanSwitch(
+            title = "Mostrar carpetas ocultas",
+            body = "Incluye carpetas que empiezan por “.” y las que ocultaste con el ojo tachado.",
+            checked = scanPrefs.showHidden,
+            onCheckedChange = viewModel::setShowHidden,
+        )
+        ScanSwitch(
+            title = "Mostrar podcasts",
+            body = "Carpeta Podcasts o más de 20 min con “podcast” en el nombre.",
+            checked = scanPrefs.showPodcasts,
+            onCheckedChange = viewModel::setShowPodcasts,
+        )
+        ScanSwitch(
+            title = "Mostrar audiolibros",
+            body = "Carpeta Audiolibros, archivos m4b o más de 30 min con “audiolibro” en el nombre.",
+            checked = scanPrefs.showAudiobooks,
+            onCheckedChange = viewModel::setShowAudiobooks,
+        )
+        Spacer(Modifier.height(16.dp))
+        Text("Carpetas ocultas", style = MaterialTheme.typography.titleSmall, color = OnBackground)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Oculta una carpeta desde su pantalla (icono de ojo tachado). Aquí las vuelves a mostrar una a una.",
+            color = ArtistGray,
+            style = MaterialTheme.typography.bodySmall,
         )
         if (ignoredFolders.isEmpty()) {
             Spacer(Modifier.height(8.dp))
@@ -187,12 +215,18 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        path,
-                        color = OnBackground,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.weight(1f),
-                    )
+                    Column(modifier = Modifier.weight(1f).padding(vertical = 6.dp)) {
+                        Text(
+                            com.example.music.domain.library.TrackClassifier.folderLabel(path),
+                            color = OnBackground,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            path,
+                            color = ArtistGray,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     TextButton(onClick = { viewModel.unignoreFolder(path) }) {
                         Text("Mostrar", color = Accent)
                     }
@@ -220,6 +254,31 @@ fun SettingsScreen(
         )
         Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+@Composable
+private fun ScanSwitch(
+    title: String,
+    body: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, color = OnBackground, style = MaterialTheme.typography.titleSmall)
+            Text(body, color = ArtistGray, style = MaterialTheme.typography.bodySmall)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(checkedTrackColor = Accent),
+        )
     }
 }
 

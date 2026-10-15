@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.example.music.core.theme.Background
 import com.example.music.core.theme.MusicTheme
+import com.example.music.domain.usecase.ControlPlaybackUseCase
 import com.example.music.domain.usecase.OpenIncomingMediaUseCase
 import com.example.music.domain.usecase.PlayTrackUseCase
 import com.example.music.ui.MusicApp
@@ -25,6 +26,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var playTrack: PlayTrackUseCase
     @Inject lateinit var openIncomingMedia: OpenIncomingMediaUseCase
+    @Inject lateinit var controls: ControlPlaybackUseCase
 
     override fun onCreate(savedInstanceState: Bundle?) {
         runCatching { enableEdgeToEdge() }
@@ -59,6 +61,11 @@ class MainActivity : ComponentActivity() {
 
     override fun finishAndRemoveTask() {
         moveTaskToBack(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        runCatching { controls.persistSession() }
     }
 
     override fun onNewIntent(intent: Intent) {

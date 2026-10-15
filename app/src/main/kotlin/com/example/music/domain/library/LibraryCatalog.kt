@@ -21,13 +21,36 @@ object LibraryCatalog {
     fun idsToAddToPlaylist(existing: Collection<String>, selectedIds: List<String>): List<String> =
         selectedIds.filter { it.isNotBlank() && it !in existing }.distinct()
 
+    fun moveIds(ids: List<String>, fromIndex: Int, toIndex: Int): List<String>? {
+        if (fromIndex !in ids.indices) return null
+        val target = toIndex.coerceIn(0, ids.lastIndex)
+        if (fromIndex == target) return null
+        return ids.toMutableList().also { next ->
+            val item = next.removeAt(fromIndex)
+            next.add(target, item)
+        }
+    }
+
+    fun coverArtwork(tracks: List<Track>): String? = tracks.coverTrack()?.artworkUri
+
+    fun List<Track>.coverTrack(): Track? =
+        firstOrNull { !it.artworkUri.isNullOrBlank() } ?: firstOrNull()
+
     fun build(
         tracks: List<Track>,
         prefs: LibraryPrefsSnapshot,
         query: LibraryBrowseQuery,
     ): LibraryUiState {
         val songs = sortTracks(
-            tracks.filter { !it.isVideo && (it.folderPath.isBlank() || it.folderPath !in prefs.ignoredFolders) },
+            tracks.filter { track ->
+                TrackClassifier.includeInLibrary(
+                    track = track,
+                    ignoredFolders = prefs.ignoredFolders,
+                    showHidden = prefs.scan.showHidden,
+                    showPodcasts = prefs.scan.showPodcasts,
+                    showAudiobooks = prefs.scan.showAudiobooks,
+                )
+            },
             query.sort,
         )
         val albumGroups = albumGroups(songs)
@@ -37,6 +60,7 @@ object LibraryCatalog {
             favoriteIds = prefs.favorites,
             playlists = prefs.playlists,
             ignoredFolders = prefs.ignoredFolders,
+            scan = prefs.scan,
         )
         val state = when (query.browse) {
             BrowseMode.HOME -> base.copy(
@@ -87,7 +111,7 @@ object LibraryCatalog {
                 key = playlistKey(playlist.id),
                 title = playlist.name,
                 subtitle = if (list.isEmpty()) "Vacía" else countLabel(list),
-                artworkUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
+                artworkUri = coverArtwork(list),
                 tracks = list,
             )
         }
@@ -115,7 +139,7 @@ object LibraryCatalog {
                     key = first.folderPath.ifBlank { "Otras" },
                     title = first.folderName.ifBlank { "Otras" },
                     subtitle = "${list.size} · ${first.folderPath.ifBlank { "Otras" }}",
-                    artworkUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
+                    artworkUri = coverArtwork(list),
                     tracks = list,
                 )
             }
@@ -124,7 +148,7 @@ object LibraryCatalog {
                     key = first.artist,
                     title = first.artist,
                     subtitle = countLabel(list),
-                    artworkUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
+                    artworkUri = coverArtwork(list),
                     tracks = list,
                 )
             }
@@ -201,7 +225,7 @@ object LibraryCatalog {
                 key = albumKey(first),
                 title = first.album.ifBlank { "Sin álbum" },
                 subtitle = "${first.artist} · ${list.size}",
-                artworkUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
+                artworkUri = coverArtwork(list),
                 tracks = list,
             )
         }.distinctBy { it.key }.sortedBy { it.title.lowercase() }

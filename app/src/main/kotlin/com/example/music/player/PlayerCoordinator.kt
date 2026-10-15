@@ -34,9 +34,11 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Singleton
 class PlayerCoordinator @Inject constructor(
@@ -251,11 +253,15 @@ class PlayerCoordinator @Inject constructor(
     }
 
     override fun playNext(track: Track) {
+        playNext(listOf(track))
+    }
+
+    override fun playNext(tracks: List<Track>) {
         scope.launch {
             mutex.withLock {
                 val snapshot = _state.value
                 val mutation = PlaybackQueueOps.playNext(
-                    track,
+                    tracks,
                     snapshot.queue,
                     originalQueue,
                     snapshot.currentTrack?.id,
@@ -268,16 +274,12 @@ class PlayerCoordinator @Inject constructor(
                 _state.update { it.copy(queue = mutation.queue, queueIndex = mutation.currentIndex) }
                 if (isAllLocal(mutation.queue)) {
                     CrashGuard.run {
-                        if (mutation.alreadyPresent) {
-                            localPlayer.setQueue(
-                                mutation.queue,
-                                mutation.currentIndex,
-                                snapshot.positionMs,
-                                snapshot.isPlaying,
-                            )
-                        } else {
-                            localPlayer.addMediaItems(listOf(track), mutation.insertIndex)
-                        }
+                        localPlayer.setQueue(
+                            mutation.queue,
+                            mutation.currentIndex,
+                            snapshot.positionMs,
+                            snapshot.isPlaying,
+                        )
                     }
                 }
             }
@@ -319,6 +321,8 @@ class PlayerCoordinator @Inject constructor(
             toIndex,
             snapshot.currentTrack?.id,
             snapshot.queueIndex,
+            originalQueue = originalQueue,
+            shuffleEnabled = snapshot.isShuffleEnabled,
         ) ?: return
         originalQueue = mutation.originalQueue
         _state.update { it.copy(queue = mutation.queue, queueIndex = mutation.currentIndex) }
@@ -423,10 +427,25 @@ class PlayerCoordinator @Inject constructor(
         }
     }
 
+    override fun persistSession() {
+        persist()
+    }
+
+    fun persistSessionBlocking() {
+        persistEnabled = true
+        val session = sessionToSave()
+        runBlocking(Dispatchers.IO) {
+            withTimeoutOrNull(2_000) {
+                if (session == null) sessionRepository.clear()
+                else sessionRepository.save(session)
+            }
+        }
+    }
+
     override fun release() {
         sleepJob?.cancel()
         sleepJob = null
-        persist()
+        persistSessionBlocking()
     }
 
     private fun skipNextInternal() {
@@ -566,23 +585,29 @@ class PlayerCoordinator @Inject constructor(
 
     private fun persist() {
         if (!persistEnabled) return
-        val snapshot = _state.value
+        val session = sessionToSave()
         scope.launch(Dispatchers.IO) {
-            if (snapshot.queue.isEmpty() || snapshot.currentTrack == null) {
-                sessionRepository.clear()
-                return@launch
-            }
-            sessionRepository.save(
-                PlaybackSession(
-                    queue = snapshot.queue,
-                    originalQueue = originalQueue.ifEmpty { snapshot.queue },
-                    queueIndex = snapshot.queueIndex,
-                    positionMs = snapshot.positionMs,
-                    isShuffleEnabled = snapshot.isShuffleEnabled,
-                    repeatMode = snapshot.repeatMode,
-                ),
-            )
+            if (session == null) sessionRepository.clear()
+            else sessionRepository.save(session)
         }
+    }
+
+    private fun sessionToSave(): PlaybackSession? {
+        val snapshot = _state.value
+        if (snapshot.queue.isEmpty() || snapshot.currentTrack == null) return null
+        val enginePosition = if (isWeb(snapshot.currentTrack)) {
+            snapshot.positionMs
+        } else {
+            localPlayer.engineState.value.positionMs
+        }
+        return PlaybackSession(
+            queue = snapshot.queue,
+            originalQueue = originalQueue.ifEmpty { snapshot.queue },
+            queueIndex = snapshot.queueIndex,
+            positionMs = enginePosition.coerceAtLeast(0L),
+            isShuffleEnabled = snapshot.isShuffleEnabled,
+            repeatMode = snapshot.repeatMode,
+        )
     }
 
     private suspend fun restoreSession() {

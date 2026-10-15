@@ -19,6 +19,7 @@ interface IPlayerService {
     fun setShuffle(enabled: Boolean)
     fun setRepeat(mode: RepeatMode)
     fun playNext(track: Track)
+    fun playNext(tracks: List<Track>)
     fun addToQueue(track: Track)
     fun addToQueue(tracks: List<Track>)
     fun moveInQueue(fromIndex: Int, toIndex: Int)
@@ -29,5 +30,6 @@ interface IPlayerService {
     fun reopenWebBridge()
     fun setPlaybackSpeed(speed: Float)
     fun setSleepTimer(option: SleepOption)
+    fun persistSession()
     fun release()
 }

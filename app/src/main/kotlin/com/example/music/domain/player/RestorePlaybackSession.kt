@@ -17,7 +17,7 @@ object RestorePlaybackSession {
     fun restore(session: PlaybackSession, canPlay: (Track) -> Boolean): RestoredPlayback? {
         val playable = session.queue.filter(canPlay)
         if (playable.isEmpty()) return null
-        val original = session.originalQueue.filter { track -> playable.any { it.id == track.id } }
+        val original = session.originalQueue.filter(canPlay).distinctBy { it.id }
             .ifEmpty { playable }
         val wantedId = session.queue.getOrNull(session.queueIndex)?.id
         val index = playable.indexOfFirst { it.id == wantedId }.let { if (it >= 0) it else 0 }

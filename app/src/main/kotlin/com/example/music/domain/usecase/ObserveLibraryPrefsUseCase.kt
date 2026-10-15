@@ -20,6 +20,10 @@ class ObserveLibraryPrefsUseCase @Inject constructor(
     suspend fun clearSearchHistory() = prefs.clearSearchHistory()
     fun playlists() = prefs.observePlaylists()
     fun ignoredFolders() = prefs.observeIgnoredFolders()
+    fun scanPrefs() = prefs.observeScanPrefs()
+    suspend fun setShowHidden(enabled: Boolean) = prefs.setShowHidden(enabled)
+    suspend fun setShowPodcasts(enabled: Boolean) = prefs.setShowPodcasts(enabled)
+    suspend fun setShowAudiobooks(enabled: Boolean) = prefs.setShowAudiobooks(enabled)
     fun playbackSpeed() = prefs.observePlaybackSpeed()
     suspend fun setPlaybackSpeed(speed: Float) = prefs.setPlaybackSpeed(speed)
 }

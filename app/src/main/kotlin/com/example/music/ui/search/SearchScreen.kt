@@ -285,7 +285,7 @@ private fun SearchGroupRow(
     group: LibraryGroup,
     onClick: () -> Unit,
 ) {
-    val first = group.tracks.firstOrNull()
+    val cover = group.coverTrack()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -295,12 +295,12 @@ private fun SearchGroupRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AlbumArt(
-            artworkUri = group.artworkUri,
+            artworkUri = cover?.artworkUri ?: group.artworkUri,
             contentDescription = group.title,
             size = 52.dp,
-            trackId = first?.id,
-            mediaUri = first?.mediaUri,
-            isVideo = first?.isVideo == true,
+            trackId = cover?.id,
+            mediaUri = cover?.mediaUri,
+            isVideo = cover?.isVideo == true,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {

@@ -20,6 +20,7 @@ class ControlPlaybackUseCase @Inject constructor(
     fun setShuffle(enabled: Boolean) = playerService.setShuffle(enabled)
     fun setRepeat(mode: RepeatMode) = playerService.setRepeat(mode)
     fun playNext(track: Track) = playerService.playNext(track)
+    fun playNext(tracks: List<Track>) = playerService.playNext(tracks)
     fun addToQueue(track: Track) = playerService.addToQueue(track)
     fun addToQueue(tracks: List<Track>) = playerService.addToQueue(tracks)
     fun moveInQueue(fromIndex: Int, toIndex: Int) = playerService.moveInQueue(fromIndex, toIndex)
@@ -28,4 +29,5 @@ class ControlPlaybackUseCase @Inject constructor(
     fun clearError() = playerService.clearError()
     fun setPlaybackSpeed(speed: Float) = playerService.setPlaybackSpeed(speed)
     fun setSleepTimer(option: SleepOption) = playerService.setSleepTimer(option)
+    fun persistSession() = playerService.persistSession()
 }

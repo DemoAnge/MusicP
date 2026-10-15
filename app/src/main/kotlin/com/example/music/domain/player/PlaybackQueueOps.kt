@@ -70,24 +70,38 @@ object PlaybackQueueOps {
         queue: List<Track>,
         originalQueue: List<Track>,
         currentId: String?,
+    ): PlayNextMutation? = playNext(listOf(track), queue, originalQueue, currentId)
+
+    fun playNext(
+        tracks: List<Track>,
+        queue: List<Track>,
+        originalQueue: List<Track>,
+        currentId: String?,
     ): PlayNextMutation? {
-        if (track.isVideo) return null
+        val incoming = tracks.filter { !it.isVideo }.distinctBy { it.id }
+        if (incoming.isEmpty()) return null
         if (currentId == null || queue.isEmpty()) {
             return PlayNextMutation(
                 startFresh = true,
-                queue = listOf(track),
-                originalQueue = listOf(track),
+                queue = incoming,
+                originalQueue = incoming,
                 currentIndex = 0,
                 insertIndex = 0,
                 alreadyPresent = false,
             )
         }
-        val alreadyPresent = queue.any { it.id == track.id }
-        val without = queue.filterNot { it.id == track.id }
+        val incomingIds = incoming.map { it.id }.toHashSet()
+        val without = queue.filterNot { it.id in incomingIds }
         val currentIndex = without.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
         val insertIndex = (currentIndex + 1).coerceIn(0, without.size)
-        val nextQueue = without.toMutableList().apply { add(insertIndex, track) }
-        val original = originalQueue.filterNot { it.id == track.id } + track
+        val nextQueue = without.toMutableList().apply { addAll(insertIndex, incoming) }
+        val originalWithout = originalQueue.filterNot { it.id in incomingIds }
+        val originalAnchor = originalWithout.indexOfFirst { it.id == currentId }
+        val original = originalWithout.toMutableList().apply {
+            val at = if (originalAnchor >= 0) originalAnchor + 1 else size
+            addAll(at, incoming)
+        }
+        val alreadyPresent = incoming.all { track -> queue.any { it.id == track.id } }
         val newCurrent = nextQueue.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
         return PlayNextMutation(
             startFresh = false,
@@ -135,6 +149,8 @@ object PlaybackQueueOps {
         toIndex: Int,
         currentId: String?,
         fallbackIndex: Int,
+        originalQueue: List<Track> = queue,
+        shuffleEnabled: Boolean = false,
     ): MoveQueueMutation? {
         if (fromIndex !in queue.indices) return null
         val target = toIndex.coerceIn(0, queue.lastIndex)
@@ -143,9 +159,14 @@ object PlaybackQueueOps {
         val item = next.removeAt(fromIndex)
         next.add(target, item)
         val newIndex = currentId?.let { id -> next.indexOfFirst { it.id == id } } ?: fallbackIndex
+        val original = if (shuffleEnabled) {
+            originalQueue.ifEmpty { queue }
+        } else {
+            next
+        }
         return MoveQueueMutation(
             queue = next,
-            originalQueue = next,
+            originalQueue = original,
             currentIndex = newIndex.coerceAtLeast(0),
             fromIndex = fromIndex,
             toIndex = target,

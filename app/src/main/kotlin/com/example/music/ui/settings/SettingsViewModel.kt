@@ -41,6 +41,12 @@ class SettingsViewModel @Inject constructor(
         emptySet(),
     )
 
+    val scanPrefs = prefs.scanPrefs().stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        com.example.music.domain.model.LibraryScanPrefs(),
+    )
+
     val playbackSpeed: StateFlow<Float> = prefs.playbackSpeed().stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
@@ -49,6 +55,18 @@ class SettingsViewModel @Inject constructor(
 
     fun unignoreFolder(path: String) {
         viewModelScope.launch { runCatching { ignoreFolder.restore(path) } }
+    }
+
+    fun setShowHidden(enabled: Boolean) {
+        viewModelScope.launch { runCatching { prefs.setShowHidden(enabled) } }
+    }
+
+    fun setShowPodcasts(enabled: Boolean) {
+        viewModelScope.launch { runCatching { prefs.setShowPodcasts(enabled) } }
+    }
+
+    fun setShowAudiobooks(enabled: Boolean) {
+        viewModelScope.launch { runCatching { prefs.setShowAudiobooks(enabled) } }
     }
 
     fun setPreferBrave(enabled: Boolean) {

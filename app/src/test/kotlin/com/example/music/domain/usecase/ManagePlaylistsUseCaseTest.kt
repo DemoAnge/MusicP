@@ -46,6 +46,17 @@ class ManagePlaylistsUseCaseTest {
     }
 
     @Test
+    fun renameAndReorder() = runBlocking {
+        val created = (useCase.create("Mix", addTrackId = "a") as PlaylistMutation.Created).playlist
+        useCase.add(created.id, listOf("b", "c"))
+        val renamed = useCase.rename(created.id, "  Viaje  ") as PlaylistMutation.Renamed
+        assertEquals("Viaje", renamed.playlist.name)
+        assertEquals(PlaylistMutation.BlankName, useCase.rename(created.id, "  "))
+        assertEquals(PlaylistMutation.Reordered, useCase.reorderTracks(created.id, 2, 0))
+        assertEquals(listOf("c", "a", "b"), prefs.observePlaylists().first().single().trackIds)
+    }
+
+    @Test
     fun ignoreFolderRequiresPath() = runBlocking {
         assertEquals(false, folders.ignore("  "))
         assertTrue(folders.ignore("/sd/Podcasts"))

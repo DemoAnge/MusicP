@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.music.domain.library.LibraryCatalog
 import com.example.music.domain.model.BrowseMode
 import com.example.music.domain.model.DeleteTracksResult
+import com.example.music.domain.library.TrackClassifier
 import com.example.music.domain.model.LibraryBrowseQuery
 import com.example.music.domain.model.LibraryGroup
 import com.example.music.domain.model.LibraryPrefsSnapshot
@@ -96,8 +97,9 @@ class LibraryViewModel @Inject constructor(
         observePrefs.recents(),
         observePrefs.playlists(),
         observePrefs.ignoredFolders(),
-    ) { favorites, recents, playlists, ignored ->
-        LibraryPrefsSnapshot(favorites, recents, playlists, ignored)
+        observePrefs.scanPrefs(),
+    ) { favorites, recents, playlists, ignored, scan ->
+        LibraryPrefsSnapshot(favorites, recents, playlists, ignored, scan)
     }
 
     val uiState: StateFlow<LibraryUiState> = combine(
@@ -118,6 +120,7 @@ class LibraryViewModel @Inject constructor(
                 favoriteIds = prefs.favorites,
                 playlists = prefs.playlists,
                 ignoredFolders = prefs.ignoredFolders,
+                scan = prefs.scan,
                 selecting = sel.first,
                 selectedIds = sel.second,
                 pickingForPlaylist = query.pickingForPlaylist,
@@ -221,6 +224,18 @@ class LibraryViewModel @Inject constructor(
         exitSelection()
     }
 
+    fun playSelectedNext() {
+        val list = selectedTracks()
+        if (list.isEmpty()) return
+        controls.playNext(list)
+        _notice.value = if (list.size == 1) {
+            "Se reproducirá a continuación"
+        } else {
+            "Se reproducirán ${list.size} a continuación"
+        }
+        exitSelection()
+    }
+
     fun playAll() {
         val list = uiState.value.visibleTracks.ifEmpty { playableTracks() }
         if (list.isEmpty()) return
@@ -309,6 +324,24 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { playlists.removeTrack(id, trackId) }
             _notice.value = "Quitada de la lista"
+        }
+    }
+
+    fun renameCurrentPlaylist(name: String) {
+        val id = uiState.value.selectedPlaylistId ?: return
+        viewModelScope.launch {
+            _notice.value = when (val result = runCatching { playlists.rename(id, name) }.getOrNull()) {
+                is PlaylistMutation.Renamed -> "Lista “${result.playlist.name}”"
+                PlaylistMutation.BlankName -> "Ponle un nombre a la lista"
+                else -> "No se pudo renombrar la lista"
+            }
+        }
+    }
+
+    fun movePlaylistTrack(fromIndex: Int, toIndex: Int) {
+        val id = uiState.value.selectedPlaylistId ?: return
+        viewModelScope.launch {
+            runCatching { playlists.reorderTracks(id, fromIndex, toIndex) }
         }
     }
 
@@ -446,8 +479,16 @@ class LibraryViewModel @Inject constructor(
     }
 
     private fun playableTracks(): List<Track> {
-        val ignored = uiState.value.ignoredFolders
-        return allTracks.value.filter { !it.isVideo && it.folderPath !in ignored }
+        val snapshot = uiState.value
+        return allTracks.value.filter { track ->
+            TrackClassifier.includeInLibrary(
+                track = track,
+                ignoredFolders = snapshot.ignoredFolders,
+                showHidden = snapshot.scan.showHidden,
+                showPodcasts = snapshot.scan.showPodcasts,
+                showAudiobooks = snapshot.scan.showAudiobooks,
+            )
+        }
     }
 }
 

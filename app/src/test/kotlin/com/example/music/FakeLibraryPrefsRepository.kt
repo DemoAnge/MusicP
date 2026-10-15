@@ -1,5 +1,6 @@
 package com.example.music
 
+import com.example.music.domain.model.LibraryScanPrefs
 import com.example.music.domain.model.UserPlaylist
 import com.example.music.domain.repository.LibraryPrefsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,6 +10,7 @@ class FakeLibraryPrefsRepository : LibraryPrefsRepository {
     private val recents = MutableStateFlow<List<String>>(emptyList())
     private val playlists = MutableStateFlow<List<UserPlaylist>>(emptyList())
     private val ignored = MutableStateFlow<Set<String>>(emptySet())
+    private val scan = MutableStateFlow(LibraryScanPrefs())
     private val lock = MutableStateFlow(false)
     private val brave = MutableStateFlow(true)
     private val history = MutableStateFlow<List<String>>(emptyList())
@@ -92,12 +94,44 @@ class FakeLibraryPrefsRepository : LibraryPrefsRepository {
         }
     }
 
+    override suspend fun renamePlaylist(id: String, name: String): UserPlaylist? {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return null
+        var renamed: UserPlaylist? = null
+        playlists.value = playlists.value.map { playlist ->
+            if (playlist.id != id) playlist
+            else playlist.copy(name = trimmed).also { renamed = it }
+        }
+        return renamed
+    }
+
+    override suspend fun setPlaylistTrackIds(playlistId: String, trackIds: List<String>) {
+        playlists.value = playlists.value.map { playlist ->
+            if (playlist.id != playlistId) playlist
+            else playlist.copy(trackIds = trackIds.filter { it.isNotBlank() }.distinct())
+        }
+    }
+
     override fun observeIgnoredFolders() = ignored
 
     override suspend fun setFolderIgnored(folderPath: String, ignored: Boolean) {
         val path = folderPath.trim()
         if (path.isEmpty()) return
         this.ignored.value = if (ignored) this.ignored.value + path else this.ignored.value - path
+    }
+
+    override fun observeScanPrefs() = scan
+
+    override suspend fun setShowHidden(enabled: Boolean) {
+        scan.value = scan.value.copy(showHidden = enabled)
+    }
+
+    override suspend fun setShowPodcasts(enabled: Boolean) {
+        scan.value = scan.value.copy(showPodcasts = enabled)
+    }
+
+    override suspend fun setShowAudiobooks(enabled: Boolean) {
+        scan.value = scan.value.copy(showAudiobooks = enabled)
     }
 
     override fun observePlaybackSpeed() = speed

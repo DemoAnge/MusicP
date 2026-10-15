@@ -3,6 +3,7 @@ package com.example.music.domain.library
 import com.example.music.domain.model.BrowseMode
 import com.example.music.domain.model.LibraryBrowseQuery
 import com.example.music.domain.model.LibraryPrefsSnapshot
+import com.example.music.domain.model.LibraryScanPrefs
 import com.example.music.domain.model.UserPlaylist
 import com.example.music.testTrack
 import org.junit.Assert.assertEquals
@@ -13,7 +14,7 @@ import org.junit.Test
 class LibraryCatalogTest {
     private val songs = listOf(
         testTrack("1", title = "Alpha", artist = "A", album = "One", folderPath = "/sd/Music", folderName = "Music"),
-        testTrack("2", title = "Beta", artist = "B", album = "Two", folderPath = "/sd/Podcasts", folderName = "Podcasts"),
+        testTrack("2", title = "Beta", artist = "B", album = "Two", folderPath = "/sd/Rock", folderName = "Rock"),
         testTrack("vid", title = "Clip", isVideo = true),
     )
 
@@ -24,7 +25,7 @@ class LibraryCatalogTest {
             LibraryPrefsSnapshot(
                 favorites = setOf("1"),
                 recents = listOf("2", "1"),
-                ignoredFolders = setOf("/sd/Podcasts"),
+                ignoredFolders = setOf("/sd/Rock"),
             ),
             LibraryBrowseQuery(BrowseMode.HOME),
         )
@@ -80,5 +81,37 @@ class LibraryCatalogTest {
     @Test
     fun idsToAddSkipsDuplicates() {
         assertEquals(listOf("b"), LibraryCatalog.idsToAddToPlaylist(setOf("a"), listOf("a", "b", "b", "")))
+    }
+
+    @Test
+    fun moveIdsReordersPlaylist() {
+        assertEquals(listOf("b", "a", "c"), LibraryCatalog.moveIds(listOf("a", "b", "c"), 1, 0))
+        assertEquals(null, LibraryCatalog.moveIds(listOf("a"), 0, 0))
+    }
+
+    @Test
+    fun groupCoverPrefersArtworkThenFirstTrack() {
+        val bare = testTrack("1", artworkUri = null)
+        val withArt = testTrack("2", artworkUri = "content://art/2")
+        assertEquals("2", listOf(bare, withArt).let { LibraryCatalog.run { it.coverTrack() } }?.id)
+        assertEquals("1", listOf(bare).let { LibraryCatalog.run { it.coverTrack() } }?.id)
+    }
+
+    @Test
+    fun scannerHidesPodcastsUntilEnabled() {
+        val library = songs + testTrack(
+            "pod",
+            title = "Episodio",
+            folderPath = "/sd/Podcasts",
+            folderName = "Podcasts",
+        )
+        val hidden = LibraryCatalog.build(library, LibraryPrefsSnapshot(), LibraryBrowseQuery(BrowseMode.SONGS))
+        assertEquals(listOf("1", "2"), hidden.visibleTracks.map { it.id })
+        val shown = LibraryCatalog.build(
+            library,
+            LibraryPrefsSnapshot(scan = LibraryScanPrefs(showPodcasts = true)),
+            LibraryBrowseQuery(BrowseMode.SONGS),
+        )
+        assertEquals(listOf("1", "2", "pod"), shown.visibleTracks.map { it.id })
     }
 }
