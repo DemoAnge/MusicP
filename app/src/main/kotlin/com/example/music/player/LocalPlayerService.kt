@@ -11,13 +11,20 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import com.example.music.core.CrashGuard
 import com.example.music.data.local_music.EmbeddedArtwork
+import com.example.music.domain.model.EqPreset
 import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.PlaybackUserMessage
 import com.example.music.domain.model.RepeatMode
 import com.example.music.domain.model.Track
+import com.example.music.domain.player.PlaybackAudioOps
+import com.example.music.player.audio.LocalAudioEffects
+import com.example.music.player.audio.ReplayGainAudioProcessor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -42,7 +49,30 @@ import kotlinx.coroutines.withContext
 class LocalPlayerService @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
+    private val replayGainProcessor = ReplayGainAudioProcessor()
+    private val audioEffects = LocalAudioEffects()
+    @Volatile private var crossfadeEnabled = false
+    @Volatile private var fadingOut = false
+    @Volatile private var normalizeRequestId: String? = null
+
     val exoPlayer: ExoPlayer = ExoPlayer.Builder(context)
+        .setRenderersFactory(
+            object : DefaultRenderersFactory(context) {
+                override fun buildAudioSink(
+                    context: Context,
+                    enableFloatOutput: Boolean,
+                    enableAudioTrackPlaybackParams: Boolean,
+                ): AudioSink {
+                    return DefaultAudioSink.Builder(context)
+                        .setEnableFloatOutput(enableFloatOutput)
+                        .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
+                        .setAudioProcessorChain(
+                            DefaultAudioSink.DefaultAudioProcessorChain(replayGainProcessor),
+                        )
+                        .build()
+                }
+            },
+        )
         .setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
@@ -101,6 +131,10 @@ class LocalPlayerService @Inject constructor(
                 }
             }
 
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                CrashGuard.run { audioEffects.setSession(audioSessionId) }
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 CrashGuard.run {
                     val index = exoPlayer.currentMediaItemIndex
@@ -115,6 +149,7 @@ class LocalPlayerService @Inject constructor(
                         )
                     }
                     queuedTracks.getOrNull(index)?.let(::enrichArtwork)
+                    onTrackFadedIn()
                 }
             }
 
@@ -157,6 +192,9 @@ class LocalPlayerService @Inject constructor(
                 )
             }
             enrichArtwork(tracks[index])
+            CrashGuard.run { audioEffects.setSession(exoPlayer.audioSessionId) }
+            CrashGuard.run { exoPlayer.volume = 1f }
+            fadingOut = false
         } catch (t: Throwable) {
             _engineState.update { it.copy(isPlaying = false) }
             _failed.tryEmit(PlaybackUserMessage.fromThrowable(t))
@@ -213,9 +251,39 @@ class LocalPlayerService @Inject constructor(
     }
 
     fun setSpeed(speed: Float) {
-        val clamped = speed.coerceIn(0.8f, 1.5f)
+        val clamped = PlaybackAudioOps.clampSpeed(speed)
         CrashGuard.run {
             exoPlayer.playbackParameters = androidx.media3.common.PlaybackParameters(clamped)
+        }
+    }
+
+    fun applyNormalization(track: Track?, enabled: Boolean) {
+        if (!enabled || track == null || track.mediaUri.isBlank()) {
+            normalizeRequestId = null
+            replayGainProcessor.linearGain = 1f
+            return
+        }
+        val id = track.id
+        val uri = track.mediaUri
+        normalizeRequestId = id
+        scope.launch(Dispatchers.IO) {
+            val db = com.example.music.data.local_music.ReplayGainReader.readDb(context, uri) ?: 0f
+            if (normalizeRequestId == id) {
+                replayGainProcessor.linearGain = PlaybackAudioOps.linearGainFromDb(db)
+            }
+        }
+    }
+
+    fun setEqPreset(preset: EqPreset) {
+        audioEffects.setPreset(preset)
+        CrashGuard.run { audioEffects.setSession(exoPlayer.audioSessionId) }
+    }
+
+    fun setCrossfadeEnabled(enabled: Boolean) {
+        crossfadeEnabled = enabled
+        if (!enabled) {
+            fadingOut = false
+            CrashGuard.run { exoPlayer.volume = 1f }
         }
     }
 
@@ -332,6 +400,7 @@ class LocalPlayerService @Inject constructor(
 
     fun release() {
         CrashGuard.run { positionJob?.cancel() }
+        audioEffects.release()
     }
 
     private fun startPositionUpdates() {
@@ -339,18 +408,56 @@ class LocalPlayerService @Inject constructor(
         positionJob = scope.launch {
             while (isActive) {
                 CrashGuard.run {
+                    val position = runCatching { exoPlayer.currentPosition }.getOrDefault(0L).coerceAtLeast(0L)
+                    val duration = runCatching { exoPlayer.duration }.getOrDefault(0L).takeIf { d -> d > 0 }
+                        ?: _engineState.value.durationMs
                     _engineState.update {
                         it.copy(
-                            positionMs = runCatching { exoPlayer.currentPosition }.getOrDefault(0L).coerceAtLeast(0L),
-                            durationMs = runCatching { exoPlayer.duration }.getOrDefault(0L).takeIf { d -> d > 0 }
-                                ?: it.durationMs,
+                            positionMs = position,
+                            durationMs = duration,
                             mediaIndex = exoPlayer.currentMediaItemIndex,
                             mediaId = exoPlayer.currentMediaItem?.mediaId ?: it.mediaId,
                         )
                     }
+                    applyCrossfade(position, duration)
                 }
                 delay(200)
             }
+        }
+    }
+
+    private fun applyCrossfade(positionMs: Long, durationMs: Long) {
+        if (!crossfadeEnabled || exoPlayer.pauseAtEndOfMediaItems) {
+            if (exoPlayer.volume != 1f) CrashGuard.run { exoPlayer.volume = 1f }
+            return
+        }
+        if (durationMs <= PlaybackAudioOps.CROSSFADE_MS * 2L) return
+        if (!exoPlayer.hasNextMediaItem() && exoPlayer.repeatMode == Player.REPEAT_MODE_OFF) return
+        val remaining = durationMs - positionMs
+        if (remaining in 0..PlaybackAudioOps.CROSSFADE_MS) {
+            fadingOut = true
+            val volume = (remaining.toFloat() / PlaybackAudioOps.CROSSFADE_MS).coerceIn(0.12f, 1f)
+            CrashGuard.run { exoPlayer.volume = volume }
+        }
+    }
+
+    private fun onTrackFadedIn() {
+        if (!crossfadeEnabled || !fadingOut) {
+            CrashGuard.run { exoPlayer.volume = 1f }
+            fadingOut = false
+            return
+        }
+        fadingOut = false
+        CrashGuard.run { exoPlayer.volume = 0.12f }
+        scope.launch {
+            val steps = 8
+            val stepMs = PlaybackAudioOps.CROSSFADE_MS / steps
+            for (i in 1..steps) {
+                if (!crossfadeEnabled) break
+                CrashGuard.run { exoPlayer.volume = (i.toFloat() / steps).coerceIn(0.12f, 1f) }
+                delay(stepMs.toLong())
+            }
+            if (crossfadeEnabled) CrashGuard.run { exoPlayer.volume = 1f }
         }
     }
 

@@ -20,7 +20,6 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -38,6 +37,7 @@ import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.OnBackground
 import com.example.music.core.theme.Accent
 import com.example.music.core.theme.Surface
+import com.example.music.domain.model.EqPreset
 
 @Composable
 fun SettingsScreen(
@@ -50,6 +50,7 @@ fun SettingsScreen(
     val ignoredFolders by viewModel.ignoredFolders.collectAsStateWithLifecycle()
     val scanPrefs by viewModel.scanPrefs.collectAsStateWithLifecycle()
     val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
+    val localAudio by viewModel.localAudio.collectAsStateWithLifecycle()
     BackHandler(onBack = onBack)
 
     Column(
@@ -123,28 +124,81 @@ fun SettingsScreen(
             )
         }
         Spacer(Modifier.height(16.dp))
-        OutlinedButton(onClick = viewModel::reopenBridge) {
-            Text("Reabrir puente en el navegador")
+        Button(
+            onClick = viewModel::reopenBridge,
+            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnBackground),
+        ) {
+            Text("Toca para reabrir puente")
+        }
+        Spacer(Modifier.height(16.dp))
+        Text("Checklist del puente", style = MaterialTheme.typography.titleSmall, color = OnBackground)
+        Spacer(Modifier.height(6.dp))
+        listOf(
+            "Deja la pestaña del puente abierta en Brave",
+            "Shields: permite YouTube en esa página",
+            "Un toque en «Activar sonido» por sesión",
+            "IFrame oficial: la app no graba el audio",
+        ).forEach { line ->
+            Text(
+                text = "• $line",
+                color = ArtistGray,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
         }
         Spacer(Modifier.height(24.dp))
         Text("Reproducción", style = MaterialTheme.typography.titleMedium, color = OnBackground)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Velocidad solo en música local (podcasts). YouTube en Brave sigue a 1×.",
+            "Velocidad solo en audio local. YouTube en Brave sigue a 1×.",
             color = ArtistGray,
             style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text("Música", color = OnBackground, style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        SpeedChips(selected = playbackSpeed, onSelect = viewModel::setPlaybackSpeed)
+        Spacer(Modifier.height(12.dp))
+        Text("Podcasts y audiolibros", color = OnBackground, style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        SpeedChips(selected = localAudio.spokenSpeed, onSelect = viewModel::setSpokenSpeed)
+        Spacer(Modifier.height(16.dp))
+        ScanSwitch(
+            title = "Normalizar volumen",
+            body = "Usa ReplayGain del archivo si existe. En Android 15+ el codec de loudness también ayuda. Off deja el nivel original.",
+            checked = localAudio.normalizeVolume,
+            onCheckedChange = viewModel::setNormalizeVolume,
+        )
+        ScanSwitch(
+            title = "Fundido corto",
+            body = "Cruza ~0,4 s entre pistas. Off mantiene el empalme gapless de álbum.",
+            checked = localAudio.crossfadeEnabled,
+            onCheckedChange = viewModel::setCrossfadeEnabled,
+        )
+        Spacer(Modifier.height(12.dp))
+        Text("Ecualizador", color = OnBackground, style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Tres presets. Off por defecto. Solo audio local.",
+            color = ArtistGray,
+            style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            listOf(0.8f, 1.0f, 1.25f, 1.5f).forEach { speed ->
-                val selected = abs(playbackSpeed - speed) < 0.01f
+            listOf(
+                EqPreset.OFF to "Off",
+                EqPreset.BASS to "Graves",
+                EqPreset.VOICE to "Voz",
+                EqPreset.BRIGHT to "Brillo",
+            ).forEach { (preset, label) ->
+                val selected = localAudio.eqPreset == preset
                 FilterChip(
                     selected = selected,
-                    onClick = { viewModel.setPlaybackSpeed(speed) },
-                    label = { Text(speedLabel(speed)) },
+                    onClick = { viewModel.setEqPreset(preset) },
+                    label = { Text(label) },
                     modifier = Modifier.padding(end = 8.dp),
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = Accent,
@@ -279,6 +333,32 @@ private fun ScanSwitch(
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(checkedTrackColor = Accent),
         )
+    }
+}
+
+@Composable
+private fun SpeedChips(
+    selected: Float,
+    onSelect: (Float) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        listOf(0.8f, 1.0f, 1.25f, 1.5f).forEach { speed ->
+            val on = abs(selected - speed) < 0.01f
+            FilterChip(
+                selected = on,
+                onClick = { onSelect(speed) },
+                label = { Text(speedLabel(speed)) },
+                modifier = Modifier.padding(end = 8.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = Accent,
+                    selectedLabelColor = Color.White,
+                    labelColor = OnBackground,
+                ),
+            )
+        }
     }
 }
 

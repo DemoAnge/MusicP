@@ -12,4 +12,6 @@
     <string name="widget_next">Siguiente</string>
     <string name="widget_play_pause">Reproducir o pausar</string>
     <string name="widget_rewind">Retroceder 10 segundos</string>
+    <string name="playing_in_brave">Suena en Brave</string>
+    <string name="tap_to_reopen_bridge">Toca para reabrir puente</string>
 </resources>

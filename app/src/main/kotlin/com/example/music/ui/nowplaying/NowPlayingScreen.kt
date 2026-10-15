@@ -36,6 +36,8 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.Lyrics
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -73,6 +75,7 @@ import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.RepeatMode
 import com.example.music.domain.model.SleepOption
+import com.example.music.domain.player.WebBridgeOps
 import com.example.music.ui.components.AlbumArt
 import com.example.music.ui.components.ThinSeekBar
 import com.example.music.ui.components.formatMs
@@ -289,19 +292,23 @@ fun NowPlayingScreen(
             if (track.source == PlaybackSource.WEB) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "Suena en Brave",
+                    text = WebBridgeOps.PLAYING_IN_BRAVE,
                     color = Accent,
                     style = MaterialTheme.typography.labelLarge,
                 )
                 if (!playerState.webBridgeConnected) {
                     Text(
-                        text = "Vuelve a abrir Brave. Deja la pestaña del puente abierta.",
+                        text = "La pestaña del puente se cerró o Shields bloqueó YouTube.",
                         color = ArtistGray,
                         style = MaterialTheme.typography.bodySmall,
                         textAlign = TextAlign.Center,
                     )
-                    TextButton(onClick = viewModel::reopenWebBridge) {
-                        Text("Abrir Brave", color = Accent)
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = viewModel::reopenWebBridge,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White),
+                    ) {
+                        Text(WebBridgeOps.TAP_TO_REOPEN)
                     }
                 } else if (playerState.webNeedsGesture) {
                     Text(
@@ -310,8 +317,12 @@ fun NowPlayingScreen(
                         style = MaterialTheme.typography.bodySmall,
                         textAlign = TextAlign.Center,
                     )
-                    TextButton(onClick = viewModel::reopenWebBridge) {
-                        Text("Abrir Brave", color = Accent)
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = viewModel::reopenWebBridge,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White),
+                    ) {
+                        Text(WebBridgeOps.TAP_TO_REOPEN)
                     }
                 }
             }

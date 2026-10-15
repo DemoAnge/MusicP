@@ -1,5 +1,6 @@
 package com.example.music.domain.usecase
 
+import com.example.music.domain.library.TrackClassifier
 import com.example.music.domain.model.GroupedLocalSearch
 import com.example.music.domain.model.RepeatMode
 import com.example.music.domain.model.SleepOption
@@ -77,7 +78,12 @@ class HandleVoiceCommandUseCase @Inject constructor(
 
     private suspend fun setSpeed(speed: Float): VoiceResult {
         val clamped = speed.coerceIn(0.8f, 1.5f)
-        runCatching { prefs.setPlaybackSpeed(clamped) }
+        val spoken = observePlayerState().value.currentTrack?.let { TrackClassifier.isSpoken(it) } == true
+        if (spoken) {
+            runCatching { prefs.setSpokenSpeed(clamped) }
+        } else {
+            runCatching { prefs.setPlaybackSpeed(clamped) }
+        }
         return VoiceResult("Velocidad ${speedSpoken(clamped)}")
     }
 

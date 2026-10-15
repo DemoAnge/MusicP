@@ -24,6 +24,8 @@ object TrackClassifier {
         return last.ifBlank { trimmed }
     }
 
+    fun isSpoken(track: Track): Boolean = kind(track) != TrackKind.MUSIC
+
     fun kind(track: Track): TrackKind {
         val mime = track.mimeType.orEmpty().lowercase()
         val tokens = folderTokens(track.folderPath, track.folderName)

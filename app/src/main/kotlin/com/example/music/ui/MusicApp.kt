@@ -169,6 +169,7 @@ fun MusicApp(
                                 onSkipNext = playerBarViewModel::skipNext,
                                 onSeek = playerBarViewModel::seekTo,
                                 onOpenNowPlaying = { openNowPlaying() },
+                                onReopenBridge = playerBarViewModel::reopenWebBridge,
                             )
                         }
                         if (!onSettings) NavigationBar(containerColor = Surface) {

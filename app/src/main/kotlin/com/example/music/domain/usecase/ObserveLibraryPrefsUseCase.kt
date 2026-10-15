@@ -26,4 +26,9 @@ class ObserveLibraryPrefsUseCase @Inject constructor(
     suspend fun setShowAudiobooks(enabled: Boolean) = prefs.setShowAudiobooks(enabled)
     fun playbackSpeed() = prefs.observePlaybackSpeed()
     suspend fun setPlaybackSpeed(speed: Float) = prefs.setPlaybackSpeed(speed)
+    fun localAudio() = prefs.observeLocalAudio()
+    suspend fun setSpokenSpeed(speed: Float) = prefs.setSpokenSpeed(speed)
+    suspend fun setNormalizeVolume(enabled: Boolean) = prefs.setNormalizeVolume(enabled)
+    suspend fun setCrossfadeEnabled(enabled: Boolean) = prefs.setCrossfadeEnabled(enabled)
+    suspend fun setEqPreset(preset: com.example.music.domain.model.EqPreset) = prefs.setEqPreset(preset)
 }

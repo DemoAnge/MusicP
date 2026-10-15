@@ -7,6 +7,7 @@ import androidx.core.content.ContextCompat
 import com.example.music.core.CrashGuard
 import com.example.music.domain.model.PlaybackUserMessage
 import com.example.music.domain.model.Track
+import com.example.music.domain.player.WebBridgeOps
 import com.example.music.player.MusicPlaybackService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
@@ -52,6 +53,7 @@ class BrowserTunnelPlayer @Inject constructor(
     private var preferBrave: Boolean = true
     @Volatile private var lastClientAt: Long = 0L
     @Volatile private var watchdogRunning: Boolean = false
+    @Volatile private var bridgeDownNotified: Boolean = false
 
     fun setPreferBrave(value: Boolean) {
         preferBrave = value
@@ -108,6 +110,8 @@ class BrowserTunnelPlayer @Inject constructor(
     fun stop() {
         send(JSONObject().put("type", "pause"))
         lastTrack = null
+        lastClientAt = 0L
+        bridgeDownNotified = false
         _engineState.value = WebEngineState()
     }
 
@@ -137,7 +141,7 @@ class BrowserTunnelPlayer @Inject constructor(
             context.assets.open("web_bridge/index.html").bufferedReader().use { it.readText() }
         }.getOrDefault("")
         token = UUID.randomUUID().toString()
-        val created = LocalBridgeServer(html, token, ::onMessage)
+        val created = LocalBridgeServer(html, token, ::onMessage, onActivity = ::onClientActivity)
         created.start()
         server = created
         startWatchdog()
@@ -149,13 +153,21 @@ class BrowserTunnelPlayer @Inject constructor(
         thread(name = "music-bridge-watch", isDaemon = true) {
             while (watchdogRunning && server != null) {
                 Thread.sleep(2_000)
-                val last = lastClientAt
-                if (last > 0L && System.currentTimeMillis() - last > 6_000L) {
-                    val wasConnected = _engineState.value.connected
-                    _engineState.update { it.copy(connected = false) }
-                    if (wasConnected && lastTrack != null) {
-                        _failed.tryEmit(PlaybackUserMessage.BRIDGE_DOWN)
-                    }
+                val now = System.currentTimeMillis()
+                val fresh = WebBridgeOps.isFresh(lastClientAt, now)
+                val wasConnected = _engineState.value.connected
+                if (wasConnected != fresh) {
+                    _engineState.update { it.copy(connected = fresh) }
+                }
+                if (WebBridgeOps.shouldNotifyBridgeDown(
+                        lastClientAt = lastClientAt,
+                        now = now,
+                        hasActiveTrack = lastTrack != null,
+                        alreadyNotified = bridgeDownNotified,
+                    )
+                ) {
+                    bridgeDownNotified = true
+                    _failed.tryEmit(PlaybackUserMessage.BRIDGE_DOWN)
                 }
             }
             watchdogRunning = false
@@ -181,8 +193,16 @@ class BrowserTunnelPlayer @Inject constructor(
         server?.send(json)
     }
 
-    private fun onMessage(json: JSONObject) {
+    private fun onClientActivity() {
         lastClientAt = System.currentTimeMillis()
+        bridgeDownNotified = false
+        if (!_engineState.value.connected) {
+            _engineState.update { it.copy(connected = true) }
+        }
+    }
+
+    private fun onMessage(json: JSONObject) {
+        onClientActivity()
         when (json.optString("type")) {
             "hello" -> {
                 _engineState.update { it.copy(connected = true, needsGesture = !json.optBoolean("armed", false)) }

@@ -1,6 +1,8 @@
 package com.example.music
 
+import com.example.music.domain.model.EqPreset
 import com.example.music.domain.model.LibraryScanPrefs
+import com.example.music.domain.model.LocalAudioPrefs
 import com.example.music.domain.model.UserPlaylist
 import com.example.music.domain.repository.LibraryPrefsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +17,7 @@ class FakeLibraryPrefsRepository : LibraryPrefsRepository {
     private val brave = MutableStateFlow(true)
     private val history = MutableStateFlow<List<String>>(emptyList())
     private val speed = MutableStateFlow(1f)
+    private val audio = MutableStateFlow(LocalAudioPrefs())
     private var nextId = 1
 
     override fun observeFavoriteIds() = favorites
@@ -137,5 +140,24 @@ class FakeLibraryPrefsRepository : LibraryPrefsRepository {
     override fun observePlaybackSpeed() = speed
     override suspend fun setPlaybackSpeed(speed: Float) {
         this.speed.value = speed
+        audio.value = audio.value.copy(musicSpeed = speed)
+    }
+
+    override fun observeLocalAudio() = audio
+
+    override suspend fun setSpokenSpeed(speed: Float) {
+        audio.value = audio.value.copy(spokenSpeed = speed)
+    }
+
+    override suspend fun setNormalizeVolume(enabled: Boolean) {
+        audio.value = audio.value.copy(normalizeVolume = enabled)
+    }
+
+    override suspend fun setCrossfadeEnabled(enabled: Boolean) {
+        audio.value = audio.value.copy(crossfadeEnabled = enabled)
+    }
+
+    override suspend fun setEqPreset(preset: EqPreset) {
+        audio.value = audio.value.copy(eqPreset = preset)
     }
 }

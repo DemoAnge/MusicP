@@ -33,6 +33,7 @@ import com.example.music.core.theme.Accent
 import com.example.music.core.theme.SurfaceElevated
 import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.PlayerState
+import com.example.music.domain.player.WebBridgeOps
 
 @Composable
 fun MiniPlayer(
@@ -42,9 +43,11 @@ fun MiniPlayer(
     onSkipNext: () -> Unit,
     onSeek: (Long) -> Unit,
     onOpenNowPlaying: () -> Unit,
+    onReopenBridge: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val track = playerState.currentTrack ?: return
+    val web = track.source == PlaybackSource.WEB
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -52,6 +55,17 @@ fun MiniPlayer(
             .clip(RoundedCornerShape(8.dp))
             .background(SurfaceElevated),
     ) {
+        if (web && !playerState.webBridgeConnected) {
+            Text(
+                text = WebBridgeOps.TAP_TO_REOPEN,
+                color = Accent,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onReopenBridge)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
         ThinSeekBar(
             positionMs = playerState.positionMs,
             durationMs = playerState.durationMs,
@@ -81,8 +95,8 @@ fun MiniPlayer(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = if (track.source == PlaybackSource.WEB) {
-                            "${track.artist} · Brave"
+                        text = if (web) {
+                            WebBridgeOps.sourceSubtitle(track.artist)
                         } else {
                             track.artist
                         },

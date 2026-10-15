@@ -21,6 +21,7 @@ class LocalBridgeServer(
     private val html: String,
     private val token: String,
     private val onClientMessage: (JSONObject) -> Unit,
+    private val onActivity: () -> Unit = {},
 ) {
     private val commands = ConcurrentLinkedQueue<String>()
     private val waiters = CopyOnWriteArrayList<CountDownLatch>()
@@ -113,6 +114,7 @@ class LocalBridgeServer(
             }
             method == "GET" && uri == "/poll" -> {
                 connected.set(true)
+                onActivity()
                 if (commands.isEmpty()) {
                     val latch = CountDownLatch(1)
                     waiters.add(latch)
@@ -128,6 +130,7 @@ class LocalBridgeServer(
             }
             method == "POST" && uri == "/state" -> {
                 connected.set(true)
+                onActivity()
                 runCatching { onClientMessage(JSONObject(body.ifBlank { "{}" })) }
                 write(socket.getOutputStream(), 200, "application/json; charset=utf-8", "{\"ok\":true}")
             }

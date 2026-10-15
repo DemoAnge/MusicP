@@ -36,8 +36,10 @@ import com.example.music.core.theme.Accent
 import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.OnBackground
 import com.example.music.core.theme.Surface
+import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.Track
+import com.example.music.domain.player.WebBridgeOps
 import com.example.music.ui.components.AlbumArt
 import com.example.music.ui.components.PlayingBars
 
@@ -134,7 +136,11 @@ private fun QueueRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = track.artist,
+                text = if (track.source == PlaybackSource.WEB) {
+                    WebBridgeOps.sourceSubtitle(track.artist)
+                } else {
+                    track.artist
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArtistGray,
                 maxLines = 1,

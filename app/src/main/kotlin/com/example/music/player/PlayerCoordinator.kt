@@ -1,14 +1,19 @@
 package com.example.music.player
 
 import com.example.music.core.CrashGuard
+import com.example.music.domain.library.TrackClassifier
+import com.example.music.domain.library.TrackKind
+import com.example.music.domain.model.LocalAudioPrefs
 import com.example.music.domain.model.PlaybackSession
-import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.PlaybackUserMessage
 import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.RepeatMode
 import com.example.music.domain.model.SleepOption
 import com.example.music.domain.model.Track
+import com.example.music.domain.player.MixedPlaybackOps
+import com.example.music.domain.player.PlaybackAudioOps
 import com.example.music.domain.player.PlaybackQueueOps
+import com.example.music.domain.player.WebBridgeOps
 import com.example.music.domain.player.RemoveQueueMutation
 import com.example.music.domain.player.RestorePlaybackSession
 import com.example.music.domain.repository.LibraryPrefsRepository
@@ -66,18 +71,27 @@ class PlayerCoordinator @Inject constructor(
     @Volatile private var persistEnabled = false
     private var sleepJob: Job? = null
     private val ready = CompletableDeferred<Unit>()
+    private var audioPrefs = LocalAudioPrefs()
+    private var lastNormalizedId: String? = null
 
     init {
         libraryPrefs.observePreferBrave()
             .onEach { webPlayer.setPreferBrave(it) }
             .launchIn(scope)
-        libraryPrefs.observePlaybackSpeed()
-            .onEach { setPlaybackSpeed(it) }
+        libraryPrefs.observeLocalAudio()
+            .onEach { prefs ->
+                audioPrefs = prefs
+                CrashGuard.run { localPlayer.setCrossfadeEnabled(prefs.crossfadeEnabled) }
+                CrashGuard.run { localPlayer.setEqPreset(prefs.eqPreset) }
+                lastNormalizedId = null
+                applyLocalAudio(_state.value.currentTrack)
+            }
             .launchIn(scope)
 
         localPlayer.engineState
             .onEach { engine ->
                 if (isWeb(_state.value.currentTrack)) return@onEach
+                val previousId = _state.value.currentTrack?.id
                 _state.update { snapshot ->
                     val queue = snapshot.queue
                     val idx = engine.mediaIndex
@@ -94,7 +108,9 @@ class PlayerCoordinator @Inject constructor(
                         currentTrack = fromEngine ?: snapshot.currentTrack,
                     )
                 }
-                _state.value.currentTrack?.id?.let(::maybeRecord)
+                val next = _state.value.currentTrack
+                next?.id?.let(::maybeRecord)
+                if (next?.id != previousId) applyLocalAudio(next)
             }
             .launchIn(scope)
 
@@ -108,6 +124,13 @@ class PlayerCoordinator @Inject constructor(
                         durationMs = engine.durationMs.takeIf { d -> d > 0 } ?: snapshot.durationMs,
                         webBridgeConnected = engine.connected,
                         webNeedsGesture = engine.needsGesture,
+                        errorMessage = if (engine.connected &&
+                            snapshot.errorMessage == PlaybackUserMessage.BRIDGE_DOWN
+                        ) {
+                            null
+                        } else {
+                            snapshot.errorMessage
+                        },
                     )
                 }
             }
@@ -394,11 +417,7 @@ class PlayerCoordinator @Inject constructor(
     }
 
     override fun setPlaybackSpeed(speed: Float) {
-        val clamped = speed.coerceIn(0.8f, 1.5f)
-        _state.update { it.copy(playbackSpeed = clamped) }
-        if (!isWeb(_state.value.currentTrack)) {
-            CrashGuard.run { localPlayer.setSpeed(clamped) }
-        }
+        applySpeed(PlaybackAudioOps.clampSpeed(speed))
     }
 
     override fun setSleepTimer(option: SleepOption) {
@@ -498,7 +517,7 @@ class PlayerCoordinator @Inject constructor(
             } else {
                 CrashGuard.run { webPlayer.pause() }
                 CrashGuard.run { localPlayer.setRepeatMode(_state.value.repeatMode) }
-                CrashGuard.run { localPlayer.setSpeed(_state.value.playbackSpeed) }
+                applyLocalAudio(track)
                 applyPauseAtEndOfTrack(_state.value.sleepAtEndOfTrack)
                 CrashGuard.run {
                     if (isAllLocal(queue)) {
@@ -562,6 +581,10 @@ class PlayerCoordinator @Inject constructor(
             message.ifBlank { PlaybackUserMessage.GENERIC }
         }
         _state.update { it.copy(isPlaying = false, errorMessage = mapped) }
+        if (!WebBridgeOps.shouldAdvanceQueueOnFailure(mapped)) {
+            consecutiveFailures = 0
+            return
+        }
         if (consecutiveFailures < 3 && _state.value.queue.size > 1) {
             CrashGuard.run { skipNextInternal() }
         }
@@ -636,8 +659,30 @@ class PlayerCoordinator @Inject constructor(
         CrashGuard.run { localPlayer.setPauseAtEndOfMediaItems(enabled) }
     }
 
-    private fun isWeb(track: Track?): Boolean = track?.source == PlaybackSource.WEB
+    private fun applyLocalAudio(track: Track?) {
+        val kind = track?.let { TrackClassifier.kind(it) } ?: TrackKind.MUSIC
+        val speed = PlaybackAudioOps.speedFor(kind, audioPrefs.musicSpeed, audioPrefs.spokenSpeed)
+        applySpeed(speed)
+        if (track == null || isWeb(track)) {
+            lastNormalizedId = null
+            CrashGuard.run { localPlayer.applyNormalization(null, false) }
+            return
+        }
+        if (lastNormalizedId == track.id) return
+        lastNormalizedId = track.id
+        CrashGuard.run { localPlayer.applyNormalization(track, audioPrefs.normalizeVolume) }
+    }
+
+    private fun applySpeed(speed: Float) {
+        val clamped = PlaybackAudioOps.clampSpeed(speed)
+        _state.update { it.copy(playbackSpeed = clamped) }
+        if (!isWeb(_state.value.currentTrack)) {
+            CrashGuard.run { localPlayer.setSpeed(clamped) }
+        }
+    }
+
+    private fun isWeb(track: Track?): Boolean = MixedPlaybackOps.isWeb(track)
 
     private fun isAllLocal(queue: List<Track>): Boolean =
-        queue.isNotEmpty() && queue.all { it.source == PlaybackSource.LOCAL }
+        MixedPlaybackOps.usesExoPlaylist(queue)
 }

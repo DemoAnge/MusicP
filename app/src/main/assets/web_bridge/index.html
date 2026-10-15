@@ -41,6 +41,7 @@
     let armed = false;
     let lastCmd = "";
     let saidHello = false;
+    let pollDelay = 280;
     const statusEl = document.getElementById("status");
     const armBtn = document.getElementById("arm");
     const queryEl = document.getElementById("query");
@@ -118,23 +119,38 @@
       }).catch(function () {});
     }
 
+    function hello() {
+      fetch("/state?token=" + encodeURIComponent(TOKEN), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "hello", armed: armed }),
+      }).catch(function () {});
+    }
+
     function poll() {
       fetch("/poll?token=" + encodeURIComponent(TOKEN))
-        .then(function (r) { return r.json(); })
+        .then(function (r) {
+          if (!r.ok) throw new Error("poll " + r.status);
+          return r.json();
+        })
         .then(function (cmds) {
+          pollDelay = 280;
           setStatus("Conectado a Music", true);
           if (!saidHello) {
             saidHello = true;
-            fetch("/state?token=" + encodeURIComponent(TOKEN), {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ type: "hello", armed: armed }),
-            }).catch(function () {});
+            hello();
+            if (lastCmd) {
+              try { handle(JSON.parse(lastCmd)); } catch (e) {}
+            }
           }
           (cmds || []).forEach(handle);
         })
-        .catch(function () { setStatus("Reconectando…", false); })
-        .finally(function () { setTimeout(poll, 280); });
+        .catch(function () {
+          saidHello = false;
+          setStatus("Reconectando…", false);
+          pollDelay = Math.min(Math.round(pollDelay * 1.5), 2000);
+        })
+        .finally(function () { setTimeout(poll, pollDelay); });
     }
 
     armBtn.addEventListener("click", function () {

@@ -10,7 +10,7 @@ object PlaybackUserMessage {
     const val FILE_MISSING = "El archivo ya no está en el teléfono."
     const val UNSUPPORTED = "Este formato no se puede reproducir."
     const val BRIDGE_DOWN =
-        "El puente con Brave se cayó. Toca Reabrir para volver a conectar."
+        "El puente con Brave se cayó. Toca para reabrir puente."
     const val YOUTUBE =
         "YouTube no pudo reproducir. En Shields permite YouTube o toca Reabrir."
     const val GENERIC = "No se pudo reproducir."

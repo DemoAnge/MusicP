@@ -1,6 +1,8 @@
 package com.example.music.domain.repository
 
+import com.example.music.domain.model.EqPreset
 import com.example.music.domain.model.LibraryScanPrefs
+import com.example.music.domain.model.LocalAudioPrefs
 import com.example.music.domain.model.UserPlaylist
 import kotlinx.coroutines.flow.Flow
 
@@ -34,4 +36,9 @@ interface LibraryPrefsRepository {
     suspend fun setShowAudiobooks(enabled: Boolean)
     fun observePlaybackSpeed(): Flow<Float>
     suspend fun setPlaybackSpeed(speed: Float)
+    fun observeLocalAudio(): Flow<LocalAudioPrefs>
+    suspend fun setSpokenSpeed(speed: Float)
+    suspend fun setNormalizeVolume(enabled: Boolean)
+    suspend fun setCrossfadeEnabled(enabled: Boolean)
+    suspend fun setEqPreset(preset: EqPreset)
 }

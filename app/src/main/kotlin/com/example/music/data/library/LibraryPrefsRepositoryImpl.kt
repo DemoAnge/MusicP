@@ -1,7 +1,9 @@
 package com.example.music.data.library
 
 import android.content.Context
+import com.example.music.domain.model.EqPreset
 import com.example.music.domain.model.LibraryScanPrefs
+import com.example.music.domain.model.LocalAudioPrefs
 import com.example.music.domain.model.UserPlaylist
 import com.example.music.domain.repository.LibraryPrefsRepository
 import com.google.gson.Gson
@@ -37,6 +39,7 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
     private val ignoredFolders = MutableStateFlow(readIgnoredFolders())
     private val scanPrefs = MutableStateFlow(readScanPrefs())
     private val playbackSpeed = MutableStateFlow(readPlaybackSpeed())
+    private val localAudio = MutableStateFlow(readLocalAudio())
 
     override fun observeFavoriteIds(): Flow<Set<String>> = favorites.asStateFlow()
 
@@ -276,10 +279,39 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
     override fun observePlaybackSpeed(): Flow<Float> = playbackSpeed.asStateFlow()
 
     override suspend fun setPlaybackSpeed(speed: Float) {
-        val clamped = speed.coerceIn(0.8f, 1.5f)
+        updateLocalAudio { it.copy(musicSpeed = speed.coerceIn(0.8f, 1.5f)) }
+    }
+
+    override fun observeLocalAudio(): Flow<LocalAudioPrefs> = localAudio.asStateFlow()
+
+    override suspend fun setSpokenSpeed(speed: Float) {
+        updateLocalAudio { it.copy(spokenSpeed = speed.coerceIn(0.8f, 1.5f)) }
+    }
+
+    override suspend fun setNormalizeVolume(enabled: Boolean) {
+        updateLocalAudio { it.copy(normalizeVolume = enabled) }
+    }
+
+    override suspend fun setCrossfadeEnabled(enabled: Boolean) {
+        updateLocalAudio { it.copy(crossfadeEnabled = enabled) }
+    }
+
+    override suspend fun setEqPreset(preset: EqPreset) {
+        updateLocalAudio { it.copy(eqPreset = preset) }
+    }
+
+    private suspend fun updateLocalAudio(transform: (LocalAudioPrefs) -> LocalAudioPrefs) {
         mutex.withLock {
-            playbackSpeed.value = clamped
-            prefs.edit().putFloat(KEY_PLAYBACK_SPEED, clamped).apply()
+            val next = transform(localAudio.value)
+            localAudio.value = next
+            playbackSpeed.value = next.musicSpeed
+            prefs.edit()
+                .putFloat(KEY_PLAYBACK_SPEED, next.musicSpeed)
+                .putFloat(KEY_SPOKEN_SPEED, next.spokenSpeed)
+                .putBoolean(KEY_NORMALIZE, next.normalizeVolume)
+                .putBoolean(KEY_CROSSFADE, next.crossfadeEnabled)
+                .putString(KEY_EQ_PRESET, next.eqPreset.name)
+                .apply()
         }
     }
 
@@ -295,6 +327,21 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
     private fun readPlaybackSpeed(): Float =
         prefs.getFloat(KEY_PLAYBACK_SPEED, 1f).coerceIn(0.8f, 1.5f)
 
+    private fun readLocalAudio(): LocalAudioPrefs {
+        val music = readPlaybackSpeed()
+        val spoken = prefs.getFloat(KEY_SPOKEN_SPEED, 1f).coerceIn(0.8f, 1.5f)
+        val preset = runCatching {
+            EqPreset.valueOf(prefs.getString(KEY_EQ_PRESET, EqPreset.OFF.name).orEmpty())
+        }.getOrDefault(EqPreset.OFF)
+        return LocalAudioPrefs(
+            musicSpeed = music,
+            spokenSpeed = spoken,
+            normalizeVolume = prefs.getBoolean(KEY_NORMALIZE, true),
+            crossfadeEnabled = prefs.getBoolean(KEY_CROSSFADE, false),
+            eqPreset = preset,
+        )
+    }
+
     private companion object {
         const val PREFS_NAME = "library_prefs"
         const val KEY_FAVORITES = "favorite_ids"
@@ -308,6 +355,10 @@ class LibraryPrefsRepositoryImpl @Inject constructor(
         const val KEY_SHOW_PODCASTS = "show_podcasts"
         const val KEY_SHOW_AUDIOBOOKS = "show_audiobooks"
         const val KEY_PLAYBACK_SPEED = "playback_speed"
+        const val KEY_SPOKEN_SPEED = "spoken_playback_speed"
+        const val KEY_NORMALIZE = "normalize_volume"
+        const val KEY_CROSSFADE = "crossfade_enabled"
+        const val KEY_EQ_PRESET = "eq_preset"
         const val MAX_RECENTS = 80
         const val MAX_SEARCH_HISTORY = 12
     }

@@ -14,7 +14,9 @@ import android.os.Bundle
 import android.widget.RemoteViews
 import com.example.music.MainActivity
 import com.example.music.R
+import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.PlayerState
+import com.example.music.domain.player.WebBridgeOps
 import com.example.music.player.MusicPlaybackService
 import com.example.music.player.PlayerCoordinator
 import dagger.hilt.android.AndroidEntryPoint
@@ -108,14 +110,17 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             val track = state.currentTrack
             if (track == null) {
                 views.setTextViewText(R.id.widget_title, context.getString(R.string.widget_idle_title))
-                if (!compact) {
-                    views.setTextViewText(R.id.widget_artist, context.getString(R.string.widget_idle_artist))
-                }
+                views.setTextViewText(R.id.widget_artist, context.getString(R.string.widget_idle_artist))
                 views.setImageViewResource(R.id.widget_art, R.drawable.ic_widget_album)
                 views.setImageViewResource(R.id.widget_play_icon, R.drawable.ic_widget_play)
             } else {
                 views.setTextViewText(R.id.widget_title, track.title)
-                if (!compact) views.setTextViewText(R.id.widget_artist, track.artist)
+                val artistLine = if (track.source == PlaybackSource.WEB) {
+                    WebBridgeOps.sourceSubtitle(track.artist)
+                } else {
+                    track.artist
+                }
+                views.setTextViewText(R.id.widget_artist, artistLine)
                 views.setImageViewResource(
                     R.id.widget_play_icon,
                     if (state.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,

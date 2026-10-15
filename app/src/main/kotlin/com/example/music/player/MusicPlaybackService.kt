@@ -24,6 +24,7 @@ import androidx.media3.session.MediaSessionService
 import com.example.music.R
 import com.example.music.core.CrashGuard
 import com.example.music.domain.model.PlaybackSource
+import com.example.music.domain.player.WebBridgeOps
 import com.google.common.collect.ImmutableList
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -219,7 +220,7 @@ class MusicPlaybackService : MediaSessionService() {
             ?: metadata?.title?.toString()?.takeIf { it.isNotBlank() }
             ?: getString(R.string.app_name)
         val artist = if (track?.source == PlaybackSource.WEB) {
-            track.artist.ifBlank { "Brave" }
+            WebBridgeOps.sourceSubtitle(track.artist)
         } else {
             metadata?.artist?.toString()?.takeIf { it.isNotBlank() }
                 ?: track?.artist

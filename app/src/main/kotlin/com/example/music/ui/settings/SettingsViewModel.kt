@@ -3,6 +3,8 @@ package com.example.music.ui.settings
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.music.domain.model.EqPreset
+import com.example.music.domain.model.LocalAudioPrefs
 import com.example.music.domain.usecase.ControlPlaybackUseCase
 import com.example.music.domain.usecase.IgnoreFolderUseCase
 import com.example.music.domain.usecase.ObserveLibraryPrefsUseCase
@@ -53,6 +55,12 @@ class SettingsViewModel @Inject constructor(
         1f,
     )
 
+    val localAudio: StateFlow<LocalAudioPrefs> = prefs.localAudio().stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        LocalAudioPrefs(),
+    )
+
     fun unignoreFolder(path: String) {
         viewModelScope.launch { runCatching { ignoreFolder.restore(path) } }
     }
@@ -75,6 +83,22 @@ class SettingsViewModel @Inject constructor(
 
     fun setPlaybackSpeed(speed: Float) {
         viewModelScope.launch { runCatching { prefs.setPlaybackSpeed(speed) } }
+    }
+
+    fun setSpokenSpeed(speed: Float) {
+        viewModelScope.launch { runCatching { prefs.setSpokenSpeed(speed) } }
+    }
+
+    fun setNormalizeVolume(enabled: Boolean) {
+        viewModelScope.launch { runCatching { prefs.setNormalizeVolume(enabled) } }
+    }
+
+    fun setCrossfadeEnabled(enabled: Boolean) {
+        viewModelScope.launch { runCatching { prefs.setCrossfadeEnabled(enabled) } }
+    }
+
+    fun setEqPreset(preset: EqPreset) {
+        viewModelScope.launch { runCatching { prefs.setEqPreset(preset) } }
     }
 
     fun reopenBridge() = controls.reopenWebBridge()
