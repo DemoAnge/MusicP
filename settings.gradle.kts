@@ -28,3 +28,4 @@ dependencyResolutionManagement {
 }
 
 include(":app")
+// El producto es :app. Los restos KMP (androidApp, iosApp, shared) no se incluyen.

@@ -27,6 +27,20 @@ data class LibraryGroup(
     val tracks: List<Track>,
 )
 
+data class LibraryPrefsSnapshot(
+    val favorites: Set<String> = emptySet(),
+    val recents: List<String> = emptyList(),
+    val playlists: List<UserPlaylist> = emptyList(),
+    val ignoredFolders: Set<String> = emptySet(),
+)
+
+data class LibraryBrowseQuery(
+    val browse: BrowseMode = BrowseMode.HOME,
+    val sort: SortMode = SortMode.TITLE,
+    val groupKey: String? = null,
+    val pickingForPlaylist: Boolean = false,
+)
+
 data class LibraryUiState(
     val browse: BrowseMode = BrowseMode.HOME,
     val sort: SortMode = SortMode.TITLE,

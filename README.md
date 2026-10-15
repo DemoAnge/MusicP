@@ -16,8 +16,9 @@ Reproductor de música **manos libres** para Android (Kotlin + Jetpack Compose).
 
 ## Ejecutar
 
-Módulo **`:app`**. En Android Studio: configuración de ejecución **app**.
+Módulo **`:app`**. En Android Studio: configuración de ejecución **app**. Las carpetas de la plantilla KMP (`androidApp`, `iosApp`, `shared`) no forman parte del producto.
 
 ```
 ./gradlew :app:assembleDebug
+./gradlew :app:test
 ```

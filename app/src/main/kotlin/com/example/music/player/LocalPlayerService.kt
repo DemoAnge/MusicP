@@ -15,6 +15,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.example.music.core.CrashGuard
 import com.example.music.data.local_music.EmbeddedArtwork
 import com.example.music.domain.model.PlaybackSource
+import com.example.music.domain.model.PlaybackUserMessage
 import com.example.music.domain.model.RepeatMode
 import com.example.music.domain.model.Track
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -119,7 +120,7 @@ class LocalPlayerService @Inject constructor(
 
             override fun onPlayerError(error: PlaybackException) {
                 _engineState.update { it.copy(isPlaying = false) }
-                _failed.tryEmit(error.message ?: "No se pudo reproducir")
+                _failed.tryEmit(PlaybackUserMessage.local(error.errorCode, error.message))
             }
         })
     }
@@ -158,7 +159,7 @@ class LocalPlayerService @Inject constructor(
             enrichArtwork(tracks[index])
         } catch (t: Throwable) {
             _engineState.update { it.copy(isPlaying = false) }
-            _failed.tryEmit(t.message ?: "No se pudo reproducir")
+            _failed.tryEmit(PlaybackUserMessage.fromThrowable(t))
         }
     }
 

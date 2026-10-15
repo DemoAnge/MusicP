@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.music.domain.usecase.ControlPlaybackUseCase
+import com.example.music.domain.usecase.IgnoreFolderUseCase
 import com.example.music.domain.usecase.ObserveLibraryPrefsUseCase
 import com.example.music.domain.usecase.SearchYouTubeUseCase
 import com.example.music.player.web.BraveSupport
@@ -19,6 +20,7 @@ import kotlinx.coroutines.launch
 class SettingsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val prefs: ObserveLibraryPrefsUseCase,
+    private val ignoreFolder: IgnoreFolderUseCase,
     private val controls: ControlPlaybackUseCase,
     searchYouTube: SearchYouTubeUseCase,
 ) : ViewModel() {
@@ -46,7 +48,7 @@ class SettingsViewModel @Inject constructor(
     )
 
     fun unignoreFolder(path: String) {
-        viewModelScope.launch { runCatching { prefs.setFolderIgnored(path, false) } }
+        viewModelScope.launch { runCatching { ignoreFolder.restore(path) } }
     }
 
     fun setPreferBrave(enabled: Boolean) {

@@ -3,10 +3,14 @@ package com.example.music.player
 import com.example.music.core.CrashGuard
 import com.example.music.domain.model.PlaybackSession
 import com.example.music.domain.model.PlaybackSource
+import com.example.music.domain.model.PlaybackUserMessage
 import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.RepeatMode
 import com.example.music.domain.model.SleepOption
 import com.example.music.domain.model.Track
+import com.example.music.domain.player.PlaybackQueueOps
+import com.example.music.domain.player.RemoveQueueMutation
+import com.example.music.domain.player.RestorePlaybackSession
 import com.example.music.domain.repository.LibraryPrefsRepository
 import com.example.music.domain.repository.PlaybackSessionRepository
 import com.example.music.domain.usecase.RecordRecentPlayUseCase
@@ -142,18 +146,9 @@ class PlayerCoordinator @Inject constructor(
 
     override suspend fun play(track: Track, queue: List<Track>) {
         mutex.withLock {
-            val resolvedQueue = (if (queue.isEmpty()) listOf(track) else queue)
-                .filter { !it.isVideo }
-                .distinctBy { it.id }
-            originalQueue = resolvedQueue
-            val index = resolvedQueue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-            val playQueue = if (_state.value.isShuffleEnabled) {
-                listOf(resolvedQueue[index]) + resolvedQueue.filterIndexed { i, _ -> i != index }.shuffled()
-            } else {
-                resolvedQueue
-            }
-            val playIndex = playQueue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-            loadQueue(playQueue, playIndex, 0L, playWhenReady = true)
+            val load = PlaybackQueueOps.play(track, queue, _state.value.isShuffleEnabled) ?: return@withLock
+            originalQueue = load.originalQueue
+            loadQueue(load.playQueue, load.playIndex, 0L, playWhenReady = true)
         }
     }
 
@@ -256,31 +251,32 @@ class PlayerCoordinator @Inject constructor(
     }
 
     override fun playNext(track: Track) {
-        if (track.isVideo) return
         scope.launch {
             mutex.withLock {
                 val snapshot = _state.value
-                if (snapshot.currentTrack == null || snapshot.queue.isEmpty()) {
-                    originalQueue = listOf(track)
-                    loadQueue(listOf(track), 0, 0L, playWhenReady = true)
+                val mutation = PlaybackQueueOps.playNext(
+                    track,
+                    snapshot.queue,
+                    originalQueue,
+                    snapshot.currentTrack?.id,
+                ) ?: return@withLock
+                originalQueue = mutation.originalQueue
+                if (mutation.startFresh) {
+                    loadQueue(mutation.queue, 0, 0L, playWhenReady = true)
                     return@withLock
                 }
-                val without = snapshot.queue.filterNot { it.id == track.id }
-                val currentId = snapshot.currentTrack.id
-                val currentIndex = without.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
-                val nextIndex = currentIndex + 1
-                val queue = without.toMutableList().apply {
-                    add(nextIndex.coerceIn(0, size), track)
-                }
-                originalQueue = originalQueue.filterNot { it.id == track.id } + track
-                val newCurrent = queue.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
-                _state.update { it.copy(queue = queue, queueIndex = newCurrent) }
-                if (isAllLocal(queue)) {
+                _state.update { it.copy(queue = mutation.queue, queueIndex = mutation.currentIndex) }
+                if (isAllLocal(mutation.queue)) {
                     CrashGuard.run {
-                        if (snapshot.queue.any { it.id == track.id }) {
-                            localPlayer.setQueue(queue, newCurrent, snapshot.positionMs, snapshot.isPlaying)
+                        if (mutation.alreadyPresent) {
+                            localPlayer.setQueue(
+                                mutation.queue,
+                                mutation.currentIndex,
+                                snapshot.positionMs,
+                                snapshot.isPlaying,
+                            )
                         } else {
-                            localPlayer.addMediaItems(listOf(track), nextIndex.coerceIn(0, queue.size))
+                            localPlayer.addMediaItems(listOf(track), mutation.insertIndex)
                         }
                     }
                 }
@@ -293,25 +289,23 @@ class PlayerCoordinator @Inject constructor(
     }
 
     override fun addToQueue(tracks: List<Track>) {
-        val incoming = tracks.filter { !it.isVideo }.distinctBy { it.id }
-        if (incoming.isEmpty()) return
         scope.launch {
             mutex.withLock {
                 val snapshot = _state.value
-                if (snapshot.currentTrack == null || snapshot.queue.isEmpty()) {
-                    originalQueue = incoming
-                    loadQueue(incoming, 0, 0L, playWhenReady = true)
+                val mutation = PlaybackQueueOps.add(
+                    tracks,
+                    snapshot.queue,
+                    originalQueue,
+                    currentEmpty = snapshot.currentTrack == null,
+                ) ?: return@withLock
+                originalQueue = mutation.originalQueue
+                if (mutation.startFresh) {
+                    loadQueue(mutation.queue, 0, 0L, playWhenReady = true)
                     return@withLock
                 }
-                val existing = snapshot.queue.map { it.id }.toHashSet()
-                val toAdd = incoming.filter { it.id !in existing }
-                if (toAdd.isEmpty()) return@withLock
-                val addedIds = toAdd.map { it.id }.toHashSet()
-                val queue = snapshot.queue + toAdd
-                originalQueue = originalQueue.filterNot { it.id in addedIds } + toAdd
-                _state.update { it.copy(queue = queue) }
-                if (isAllLocal(queue)) {
-                    CrashGuard.run { localPlayer.addMediaItems(toAdd, snapshot.queue.size) }
+                _state.update { it.copy(queue = mutation.queue) }
+                if (isAllLocal(mutation.queue)) {
+                    CrashGuard.run { localPlayer.addMediaItems(mutation.added, mutation.appendAt) }
                 }
             }
         }
@@ -319,18 +313,17 @@ class PlayerCoordinator @Inject constructor(
 
     override fun moveInQueue(fromIndex: Int, toIndex: Int) {
         val snapshot = _state.value
-        val queue = snapshot.queue.toMutableList()
-        if (fromIndex !in queue.indices) return
-        val target = toIndex.coerceIn(0, queue.lastIndex)
-        if (fromIndex == target) return
-        val item = queue.removeAt(fromIndex)
-        queue.add(target, item)
-        originalQueue = queue
-        val currentId = snapshot.currentTrack?.id
-        val newIndex = currentId?.let { id -> queue.indexOfFirst { it.id == id } } ?: snapshot.queueIndex
-        _state.update { it.copy(queue = queue, queueIndex = newIndex.coerceAtLeast(0) ) }
-        if (isAllLocal(queue)) {
-            CrashGuard.run { localPlayer.moveMediaItem(fromIndex, target) }
+        val mutation = PlaybackQueueOps.move(
+            snapshot.queue,
+            fromIndex,
+            toIndex,
+            snapshot.currentTrack?.id,
+            snapshot.queueIndex,
+        ) ?: return
+        originalQueue = mutation.originalQueue
+        _state.update { it.copy(queue = mutation.queue, queueIndex = mutation.currentIndex) }
+        if (isAllLocal(mutation.queue)) {
+            CrashGuard.run { localPlayer.moveMediaItem(mutation.fromIndex, mutation.toIndex) }
         }
     }
 
@@ -341,41 +334,50 @@ class PlayerCoordinator @Inject constructor(
     }
 
     override fun removeFromQueue(trackIds: Set<String>) {
-        if (trackIds.isEmpty()) return
         CrashGuard.run {
             val snapshot = _state.value
-            originalQueue = originalQueue.filter { it.id !in trackIds }
-            val remaining = snapshot.queue.filter { it.id !in trackIds }
-            val currentId = snapshot.currentTrack?.id
-            val currentDeleted = currentId != null && currentId in trackIds
-            if (!currentDeleted) {
-                val newIndex = remaining.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
-                _state.update { it.copy(queue = remaining, queueIndex = newIndex) }
-                if (isAllLocal(remaining) && !isWeb(snapshot.currentTrack)) {
-                    CrashGuard.run {
-                        localPlayer.setQueue(remaining, newIndex, snapshot.positionMs, snapshot.isPlaying)
+            when (
+                val mutation = PlaybackQueueOps.remove(
+                    trackIds,
+                    snapshot.queue,
+                    originalQueue,
+                    snapshot.currentTrack?.id,
+                    snapshot.queueIndex,
+                )
+            ) {
+                RemoveQueueMutation.NoOp -> Unit
+                is RemoveQueueMutation.KeptPlaying -> {
+                    originalQueue = mutation.originalQueue
+                    _state.update { it.copy(queue = mutation.remaining, queueIndex = mutation.newIndex) }
+                    if (isAllLocal(mutation.remaining) && !isWeb(snapshot.currentTrack)) {
+                        CrashGuard.run {
+                            localPlayer.setQueue(
+                                mutation.remaining,
+                                mutation.newIndex,
+                                snapshot.positionMs,
+                                snapshot.isPlaying,
+                            )
+                        }
                     }
                 }
-                return@run
-            }
-            if (remaining.isEmpty()) {
-                CrashGuard.run {
-                    localPlayer.stop()
-                    webPlayer.stop()
+                RemoveQueueMutation.Cleared -> {
+                    originalQueue = emptyList()
+                    CrashGuard.run {
+                        localPlayer.stop()
+                        webPlayer.stop()
+                    }
+                    _state.value = PlayerState(
+                        isShuffleEnabled = snapshot.isShuffleEnabled,
+                        repeatMode = snapshot.repeatMode,
+                        playbackSpeed = snapshot.playbackSpeed,
+                    )
+                    scope.launch { sessionRepository.clear() }
                 }
-                _state.value = PlayerState(
-                    isShuffleEnabled = snapshot.isShuffleEnabled,
-                    repeatMode = snapshot.repeatMode,
-                    playbackSpeed = snapshot.playbackSpeed,
-                )
-                scope.launch { sessionRepository.clear() }
-                return@run
+                is RemoveQueueMutation.JumpTo -> {
+                    originalQueue = mutation.originalQueue
+                    loadQueue(mutation.remaining, mutation.nextIndex, 0L, playWhenReady = snapshot.isPlaying)
+                }
             }
-            val next = snapshot.queue.drop(snapshot.queueIndex + 1).firstOrNull { it.id !in trackIds }
-                ?: snapshot.queue.take(snapshot.queueIndex).firstOrNull { it.id !in trackIds }
-                ?: remaining.first()
-            val nextIndex = remaining.indexOfFirst { it.id == next.id }.coerceAtLeast(0)
-            loadQueue(remaining, nextIndex, 0L, playWhenReady = snapshot.isPlaying)
         }
     }
 
@@ -488,7 +490,9 @@ class PlayerCoordinator @Inject constructor(
                 }
             }
         } catch (t: Throwable) {
-            _state.update { it.copy(isPlaying = false, errorMessage = t.message) }
+            _state.update {
+                it.copy(isPlaying = false, errorMessage = PlaybackUserMessage.fromThrowable(t))
+            }
         }
         track.id.let(::maybeRecord)
     }
@@ -533,7 +537,12 @@ class PlayerCoordinator @Inject constructor(
 
     private fun onEngineFailed(message: String) {
         consecutiveFailures += 1
-        _state.update { it.copy(isPlaying = false, errorMessage = message) }
+        val mapped = if (isWeb(_state.value.currentTrack)) {
+            PlaybackUserMessage.web(message)
+        } else {
+            message.ifBlank { PlaybackUserMessage.GENERIC }
+        }
+        _state.update { it.copy(isPlaying = false, errorMessage = mapped) }
         if (consecutiveFailures < 3 && _state.value.queue.size > 1) {
             CrashGuard.run { skipNextInternal() }
         }
@@ -578,27 +587,23 @@ class PlayerCoordinator @Inject constructor(
 
     private suspend fun restoreSession() {
         val session = withContext(Dispatchers.IO) { sessionRepository.load() } ?: return
-        val playable = withContext(Dispatchers.IO) {
-            session.queue.filter { isWeb(it) || localPlayer.canPlay(it) }
+        val restored = withContext(Dispatchers.IO) {
+            RestorePlaybackSession.restore(session) { isWeb(it) || localPlayer.canPlay(it) }
         }
         mutex.withLock {
             if (_state.value.currentTrack != null) return@withLock
-            if (playable.isEmpty()) {
+            if (restored == null) {
                 sessionRepository.clear()
                 return@withLock
             }
-            val original = session.originalQueue.filter { track -> playable.any { it.id == track.id } }
-                .ifEmpty { playable }
-            val wantedId = session.queue.getOrNull(session.queueIndex)?.id
-            val index = playable.indexOfFirst { it.id == wantedId }.let { if (it >= 0) it else 0 }
-            originalQueue = original
+            originalQueue = restored.original
             _state.update {
                 it.copy(
-                    isShuffleEnabled = session.isShuffleEnabled,
-                    repeatMode = session.repeatMode,
+                    isShuffleEnabled = restored.isShuffleEnabled,
+                    repeatMode = restored.repeatMode,
                 )
             }
-            loadQueue(playable, index, session.positionMs.coerceAtLeast(0L), playWhenReady = false)
+            loadQueue(restored.playable, restored.index, restored.positionMs, playWhenReady = false)
         }
     }
 

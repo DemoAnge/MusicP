@@ -28,4 +28,5 @@ class PlayerBarViewModel @Inject constructor(
     fun skipPrevious() = controls.skipPrevious()
     fun seekTo(positionMs: Long) = controls.seekTo(positionMs)
     fun clearError() = controls.clearError()
+    fun reopenWebBridge() = controls.reopenWebBridge()
 }

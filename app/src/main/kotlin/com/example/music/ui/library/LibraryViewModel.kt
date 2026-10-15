@@ -4,20 +4,26 @@ import android.content.IntentSender
 import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.music.domain.library.LibraryCatalog
 import com.example.music.domain.model.BrowseMode
 import com.example.music.domain.model.DeleteTracksResult
+import com.example.music.domain.model.LibraryBrowseQuery
 import com.example.music.domain.model.LibraryGroup
+import com.example.music.domain.model.LibraryPrefsSnapshot
 import com.example.music.domain.model.LibraryUiState
 import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.SortMode
 import com.example.music.domain.model.Track
-import com.example.music.domain.model.UserPlaylist
+import com.example.music.domain.usecase.BuildLibraryStateUseCase
 import com.example.music.domain.usecase.ControlPlaybackUseCase
 import com.example.music.domain.usecase.DeleteLocalTracksUseCase
 import com.example.music.domain.usecase.GetLocalTracksUseCase
+import com.example.music.domain.usecase.IgnoreFolderUseCase
+import com.example.music.domain.usecase.ManagePlaylistsUseCase
 import com.example.music.domain.usecase.ObserveLibraryPrefsUseCase
 import com.example.music.domain.usecase.ObservePlayerStateUseCase
 import com.example.music.domain.usecase.PlayTrackUseCase
+import com.example.music.domain.usecase.PlaylistMutation
 import com.example.music.domain.usecase.SearchYouTubeUseCase
 import com.example.music.domain.usecase.ToggleFavoriteUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -40,6 +46,9 @@ class LibraryViewModel @Inject constructor(
     private val getLocalTracks: GetLocalTracksUseCase,
     observePlayerState: ObservePlayerStateUseCase,
     private val observePrefs: ObserveLibraryPrefsUseCase,
+    private val buildLibraryState: BuildLibraryStateUseCase,
+    private val playlists: ManagePlaylistsUseCase,
+    private val ignoreFolder: IgnoreFolderUseCase,
     private val playTrack: PlayTrackUseCase,
     private val controls: ControlPlaybackUseCase,
     private val toggleFavorite: ToggleFavoriteUseCase,
@@ -75,26 +84,12 @@ class LibraryViewModel @Inject constructor(
         PlayerState(),
     )
 
-    private data class Filters(
-        val browse: BrowseMode,
-        val sort: SortMode,
-        val groupKey: String?,
-    )
-
-    private data class PrefsSnap(
-        val favorites: Set<String>,
-        val recents: List<String>,
-        val playlists: List<UserPlaylist>,
-        val ignoredFolders: Set<String>,
-    )
-
-    private val filters = combine(browseMode, sortMode, selectedGroupKey) { browse, sort, group ->
-        Filters(browse, sort, group)
+    private val filters = combine(browseMode, sortMode, selectedGroupKey, pickingForPlaylist) {
+            browse, sort, group, picking ->
+        LibraryBrowseQuery(browse, sort, group, picking)
     }
 
-    private val selection = combine(selecting, selectedIds, pickingForPlaylist) { on, ids, picking ->
-        Triple(on, ids, picking)
-    }
+    private val selection = combine(selecting, selectedIds) { on, ids -> on to ids }
 
     private val prefsSnap = combine(
         observePrefs.favorites(),
@@ -102,7 +97,7 @@ class LibraryViewModel @Inject constructor(
         observePrefs.playlists(),
         observePrefs.ignoredFolders(),
     ) { favorites, recents, playlists, ignored ->
-        PrefsSnap(favorites, recents, playlists, ignored)
+        LibraryPrefsSnapshot(favorites, recents, playlists, ignored)
     }
 
     val uiState: StateFlow<LibraryUiState> = combine(
@@ -111,9 +106,9 @@ class LibraryViewModel @Inject constructor(
         filters,
         selection,
         _refreshing,
-    ) { tracks, prefs, filter, sel, refreshing ->
+    ) { tracks, prefs, query, sel, refreshing ->
         runCatching {
-            buildState(tracks, prefs, filter, picking = sel.third).copy(
+            buildLibraryState(tracks, prefs, query).copy(
                 selecting = sel.first,
                 selectedIds = sel.second,
                 refreshing = refreshing,
@@ -125,7 +120,7 @@ class LibraryViewModel @Inject constructor(
                 ignoredFolders = prefs.ignoredFolders,
                 selecting = sel.first,
                 selectedIds = sel.second,
-                pickingForPlaylist = sel.third,
+                pickingForPlaylist = query.pickingForPlaylist,
                 refreshing = refreshing,
             ),
         )
@@ -160,7 +155,7 @@ class LibraryViewModel @Inject constructor(
 
     fun openAlbum(track: Track) {
         browseMode.value = BrowseMode.ALBUMS
-        selectedGroupKey.value = albumKey(track)
+        selectedGroupKey.value = LibraryCatalog.albumKey(track)
         exitSelection()
     }
 
@@ -258,22 +253,18 @@ class LibraryViewModel @Inject constructor(
 
     fun createPlaylist(name: String, addTrackId: String? = null) {
         viewModelScope.launch {
-            val created = runCatching { observePrefs.createPlaylist(name) }.getOrNull()
-            if (created == null) {
-                _notice.value = "Ponle un nombre a la lista"
-                return@launch
+            _notice.value = when (val result = runCatching { playlists.create(name, addTrackId) }.getOrNull()) {
+                is PlaylistMutation.Created -> "Lista “${result.playlist.name}” creada"
+                PlaylistMutation.BlankName -> "Ponle un nombre a la lista"
+                else -> "No se pudo crear la lista"
             }
-            if (!addTrackId.isNullOrBlank()) {
-                runCatching { observePrefs.addToPlaylist(created.id, addTrackId) }
-            }
-            _notice.value = "Lista “${created.name}” creada"
         }
     }
 
     fun deleteCurrentPlaylist() {
         val id = uiState.value.selectedPlaylistId ?: return
         viewModelScope.launch {
-            runCatching { observePrefs.deletePlaylist(id) }
+            runCatching { playlists.delete(id) }
             closeGroup()
             _notice.value = "Lista eliminada"
         }
@@ -281,8 +272,11 @@ class LibraryViewModel @Inject constructor(
 
     fun addToPlaylist(playlistId: String, trackId: String) {
         viewModelScope.launch {
-            runCatching { observePrefs.addToPlaylist(playlistId, trackId) }
-            _notice.value = "Agregada a la lista"
+            _notice.value = when (runCatching { playlists.add(playlistId, listOf(trackId)) }.getOrNull()) {
+                is PlaylistMutation.Added -> "Agregada a la lista"
+                PlaylistMutation.AlreadyPresent -> "Esas canciones ya están en la lista"
+                else -> "No se pudo agregar a la lista"
+            }
         }
     }
 
@@ -295,23 +289,16 @@ class LibraryViewModel @Inject constructor(
 
     fun confirmAddSelectedToPlaylist() {
         val playlistId = uiState.value.selectedPlaylistId ?: return
-        val existing = uiState.value.playlists
-            .firstOrNull { it.id == playlistId }
-            ?.trackIds
-            .orEmpty()
-            .toHashSet()
-        val toAdd = selectedTracks().map { it.id }.filter { it.isNotBlank() && it !in existing }.distinct()
-        if (toAdd.isEmpty()) {
-            _notice.value = "Esas canciones ya están en la lista"
-            exitSelection()
-            return
-        }
+        val ids = selectedTracks().map { it.id }
         viewModelScope.launch {
-            runCatching { observePrefs.addToPlaylist(playlistId, toAdd) }
-            _notice.value = if (toAdd.size == 1) {
-                "Se agregó a la lista"
-            } else {
-                "Se agregaron ${toAdd.size} a la lista"
+            _notice.value = when (val result = runCatching { playlists.add(playlistId, ids) }.getOrNull()) {
+                is PlaylistMutation.Added -> if (result.count == 1) {
+                    "Se agregó a la lista"
+                } else {
+                    "Se agregaron ${result.count} a la lista"
+                }
+                PlaylistMutation.AlreadyPresent -> "Esas canciones ya están en la lista"
+                else -> "No se pudo agregar a la lista"
             }
             exitSelection()
         }
@@ -320,23 +307,22 @@ class LibraryViewModel @Inject constructor(
     fun removeFromCurrentPlaylist(trackId: String) {
         val id = uiState.value.selectedPlaylistId ?: return
         viewModelScope.launch {
-            runCatching { observePrefs.removeFromPlaylist(id, trackId) }
+            runCatching { playlists.removeTrack(id, trackId) }
             _notice.value = "Quitada de la lista"
         }
     }
 
     fun ignoreCurrentFolder() {
-        val path = uiState.value.visibleTracks.firstOrNull()?.folderPath?.trim().orEmpty()
-        if (path.isEmpty()) return
+        val path = uiState.value.visibleTracks.firstOrNull()?.folderPath.orEmpty()
         viewModelScope.launch {
-            runCatching { observePrefs.setFolderIgnored(path, true) }
+            if (!runCatching { ignoreFolder.ignore(path) }.getOrDefault(false)) return@launch
             closeGroup()
             _notice.value = "Carpeta oculta. Puedes mostrarla otra vez en Ajustes."
         }
     }
 
     fun unignoreFolder(path: String) {
-        viewModelScope.launch { runCatching { observePrefs.setFolderIgnored(path, false) } }
+        viewModelScope.launch { runCatching { ignoreFolder.restore(path) } }
     }
 
     fun enterSelection() {
@@ -462,198 +448,6 @@ class LibraryViewModel @Inject constructor(
     private fun playableTracks(): List<Track> {
         val ignored = uiState.value.ignoredFolders
         return allTracks.value.filter { !it.isVideo && it.folderPath !in ignored }
-    }
-
-    private fun buildState(
-        tracks: List<Track>,
-        prefs: PrefsSnap,
-        filter: Filters,
-        picking: Boolean,
-    ): LibraryUiState {
-        val songs = sortTracks(
-            tracks.filter { !it.isVideo && (it.folderPath.isBlank() || it.folderPath !in prefs.ignoredFolders) },
-            filter.sort,
-        )
-        val albumGroups = albumGroups(songs)
-        val base = LibraryUiState(
-            browse = filter.browse,
-            sort = filter.sort,
-            favoriteIds = prefs.favorites,
-            playlists = prefs.playlists,
-            ignoredFolders = prefs.ignoredFolders,
-        )
-        return when (filter.browse) {
-            BrowseMode.HOME -> base.copy(
-                isHome = true,
-                homeRecents = recentsList(songs, prefs.recents).take(16),
-                homeLiked = songs.filter { it.id in prefs.favorites }.take(16),
-                homeAlbums = albumGroups.take(18),
-                countLabel = countLabel(songs),
-            )
-            BrowseMode.SONGS -> base.copy(
-                visibleTracks = songs,
-                countLabel = countLabel(songs),
-            )
-            BrowseMode.FAVORITES -> {
-                val liked = sortTracks(songs.filter { it.id in prefs.favorites }, filter.sort)
-                base.copy(
-                    visibleTracks = liked,
-                    countLabel = if (liked.isEmpty()) "Sin canciones marcadas" else countLabel(liked),
-                )
-            }
-            BrowseMode.RECENTS -> {
-                val played = recentsList(songs, prefs.recents)
-                val visible = if (filter.sort == SortMode.TITLE) played else sortTracks(played, filter.sort)
-                base.copy(
-                    visibleTracks = visible,
-                    countLabel = if (visible.isEmpty()) "Aún no has reproducido nada" else countLabel(visible),
-                )
-            }
-            BrowseMode.PLAYLISTS -> {
-                val groups = prefs.playlists.map { playlist ->
-                    val byId = songs.associateBy { it.id }
-                    val list = playlist.trackIds.distinct().mapNotNull { byId[it] }.distinctBy { it.id }
-                    LibraryGroup(
-                        key = playlistKey(playlist.id),
-                        title = playlist.name,
-                        subtitle = if (list.isEmpty()) "Vacía" else countLabel(list),
-                        artworkUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
-                        tracks = list,
-                    )
-                }
-                val selected = filter.groupKey?.let { key -> groups.firstOrNull { it.key == key } }
-                if (selected == null) {
-                    base.copy(
-                        showingGroups = true,
-                        groups = groups,
-                        countLabel = if (groups.isEmpty()) "Crea una lista" else "${groups.size} listas",
-                    )
-                } else {
-                    detailState(base, selected, playlistId = selected.key.removePrefix(PLAYLIST_PREFIX))
-                }
-            }
-            BrowseMode.FOLDERS,
-            BrowseMode.ARTISTS,
-            BrowseMode.ALBUMS,
-            -> {
-                val groups = when (filter.browse) {
-                    BrowseMode.FOLDERS -> groupTracks(songs, { it.folderPath.ifBlank { "Otras" } }) { first, list ->
-                        LibraryGroup(
-                            key = first.folderPath.ifBlank { "Otras" },
-                            title = first.folderName.ifBlank { "Otras" },
-                            subtitle = "${list.size} · ${first.folderPath.ifBlank { "Otras" }}",
-                            artworkUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
-                            tracks = list,
-                        )
-                    }
-                    BrowseMode.ARTISTS -> groupTracks(songs, { it.artist }) { first, list ->
-                        LibraryGroup(
-                            key = first.artist,
-                            title = first.artist,
-                            subtitle = countLabel(list),
-                            artworkUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
-                            tracks = list,
-                        )
-                    }
-                    else -> albumGroups
-                }.distinctBy { it.key }.sortedBy { it.title.lowercase() }
-                val selected = filter.groupKey?.let { key -> groups.firstOrNull { it.key == key } }
-                if (selected == null) {
-                    base.copy(
-                        showingGroups = true,
-                        groups = groups,
-                        countLabel = when (filter.browse) {
-                            BrowseMode.FOLDERS -> "${groups.size} carpetas"
-                            BrowseMode.ARTISTS -> "${groups.size} artistas"
-                            else -> "${groups.size} álbumes"
-                        },
-                    )
-                } else {
-                    detailState(base, selected)
-                }
-            }
-        }.let { state ->
-            if (!picking) return@let state.copy(pickingForPlaylist = false)
-            val playlistId = state.selectedPlaylistId
-            if (playlistId.isNullOrBlank()) return@let state.copy(pickingForPlaylist = false)
-            val existing = prefs.playlists.firstOrNull { it.id == playlistId }?.trackIds.orEmpty().toHashSet()
-            val candidates = songs
-                .filter { it.id !in existing }
-                .distinctBy { it.mediaUri.ifBlank { it.id } }
-            state.copy(
-                pickingForPlaylist = true,
-                showingGroups = false,
-                isHome = false,
-                visibleTracks = candidates,
-                groups = emptyList(),
-                countLabel = if (candidates.isEmpty()) {
-                    "Todas las canciones ya están en esta lista"
-                } else {
-                    "${candidates.size} canciones para agregar"
-                },
-            )
-        }
-    }
-
-    private fun detailState(
-        base: LibraryUiState,
-        selected: LibraryGroup,
-        playlistId: String? = null,
-    ): LibraryUiState {
-        val visible = selected.tracks.distinctBy { it.mediaUri.ifBlank { it.id } }
-        return base.copy(
-            selectedGroupKey = selected.key,
-            selectedGroupTitle = selected.title,
-            selectedGroupSubtitle = selected.subtitle,
-            selectedGroupArtwork = selected.artworkUri,
-            selectedPlaylistId = playlistId,
-            visibleTracks = visible,
-            countLabel = countLabel(visible),
-        )
-    }
-
-    private fun recentsList(songs: List<Track>, recents: List<String>): List<Track> {
-        val byId = songs.associateBy { it.id }
-        return recents.mapNotNull { byId[it] }
-    }
-
-    private fun albumGroups(songs: List<Track>): List<LibraryGroup> {
-        return groupTracks(songs, { albumKey(it) }) { first, list ->
-            LibraryGroup(
-                key = albumKey(first),
-                title = first.album.ifBlank { "Sin álbum" },
-                subtitle = "${first.artist} · ${list.size}",
-                artworkUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
-                tracks = list,
-            )
-        }.distinctBy { it.key }.sortedBy { it.title.lowercase() }
-    }
-
-    private fun groupTracks(
-        tracks: List<Track>,
-        key: (Track) -> String,
-        build: (Track, List<Track>) -> LibraryGroup,
-    ): List<LibraryGroup> {
-        return tracks.groupBy(key).map { (_, list) -> build(list.first(), list) }
-    }
-
-    private fun sortTracks(tracks: List<Track>, sort: SortMode): List<Track> {
-        return when (sort) {
-            SortMode.TITLE -> tracks.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-            SortMode.DATE_NEW -> tracks.sortedByDescending { it.dateAddedEpochSec }
-            SortMode.DATE_OLD -> tracks.sortedBy { it.dateAddedEpochSec }
-            SortMode.SIZE_LARGE -> tracks.sortedByDescending { it.sizeBytes }
-            SortMode.SIZE_SMALL -> tracks.sortedBy { it.sizeBytes }
-        }
-    }
-
-    private fun countLabel(tracks: List<Track>): String = "${tracks.size} canciones"
-
-    private fun albumKey(track: Track): String = "${track.artist}\u0000${track.album}"
-
-    private companion object {
-        const val PLAYLIST_PREFIX = "pl:"
-        fun playlistKey(id: String) = "$PLAYLIST_PREFIX$id"
     }
 }
 

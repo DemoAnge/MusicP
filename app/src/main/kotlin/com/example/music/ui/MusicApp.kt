@@ -1,7 +1,11 @@
 package com.example.music.ui
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,6 +22,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -36,6 +41,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.music.domain.model.PlaybackUserMessage
 import com.example.music.core.theme.ArtistGray
 import com.example.music.core.theme.Background
 import com.example.music.core.theme.Accent
@@ -52,6 +58,14 @@ import com.example.music.ui.settings.SettingsScreen
 import com.example.music.ui.voice.VoiceEvent
 import com.example.music.ui.voice.findComponentActivity
 import com.example.music.ui.voice.rememberActivityVoiceViewModel
+
+private fun openAppDetailsSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = Uri.fromParts("package", context.packageName, null)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }
+}
 
 private object Destinations {
     const val Library = "library"
@@ -129,7 +143,14 @@ fun MusicApp(
 
     LaunchedEffect(playerState.errorMessage) {
         val message = playerState.errorMessage?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-        snackbar.showSnackbar("No se pudo reproducir. $message")
+        val action = PlaybackUserMessage.actionLabel(message)
+        val result = snackbar.showSnackbar(message = message, actionLabel = action)
+        if (result == SnackbarResult.ActionPerformed) {
+            when (action) {
+                PlaybackUserMessage.ACTION_REOPEN -> playerBarViewModel.reopenWebBridge()
+                PlaybackUserMessage.ACTION_SETTINGS -> openAppDetailsSettings(context)
+            }
+        }
         playerBarViewModel.clearError()
     }
 

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.example.music.core.CrashGuard
+import com.example.music.domain.model.PlaybackUserMessage
 import com.example.music.domain.model.Track
 import com.example.music.player.MusicPlaybackService
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -150,7 +151,11 @@ class BrowserTunnelPlayer @Inject constructor(
                 Thread.sleep(2_000)
                 val last = lastClientAt
                 if (last > 0L && System.currentTimeMillis() - last > 6_000L) {
+                    val wasConnected = _engineState.value.connected
                     _engineState.update { it.copy(connected = false) }
+                    if (wasConnected && lastTrack != null) {
+                        _failed.tryEmit(PlaybackUserMessage.BRIDGE_DOWN)
+                    }
                 }
             }
             watchdogRunning = false
@@ -184,7 +189,9 @@ class BrowserTunnelPlayer @Inject constructor(
                 lastTrack?.let { sendPlayCommand(it, autoplay = true) }
             }
             "ended" -> _ended.tryEmit(Unit)
-            "error" -> _failed.tryEmit(json.optString("message", "YouTube no pudo reproducir"))
+            "error" -> _failed.tryEmit(
+                PlaybackUserMessage.web(json.optString("message").ifBlank { null }),
+            )
             "state" -> {
                 val srv = server
                 _engineState.update {

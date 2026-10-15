@@ -110,4 +110,8 @@ dependencies {
     implementation(libs.androidx.palette.ktx)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.browser)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlinx.coroutines.core)
 }
