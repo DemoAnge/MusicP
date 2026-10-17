@@ -23,8 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -64,6 +62,7 @@ fun SearchScreen(
     val query by viewModel.query.collectAsStateWithLifecycle()
     val local by viewModel.local.collectAsStateWithLifecycle()
     val youtubeResults by viewModel.youtubeResults.collectAsStateWithLifecycle()
+    val youtubeUrl by viewModel.youtubeUrl.collectAsStateWithLifecycle()
     val showAllSongs by viewModel.showAllSongs.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
@@ -87,7 +86,10 @@ fun SearchScreen(
             shape = RoundedCornerShape(8.dp),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(
-                onSearch = { focusManager.clearFocus() },
+                onSearch = {
+                    focusManager.clearFocus()
+                    viewModel.searchOnYouTube()
+                },
             ),
             trailingIcon = {
                 if (query.isNotEmpty()) {
@@ -121,7 +123,7 @@ fun SearchScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                contentPadding = PaddingValues(bottom = 16.dp),
+                contentPadding = PaddingValues(bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 if (local.isEmpty) {
@@ -160,37 +162,19 @@ fun SearchScreen(
                         SearchGroupRow(group = group, onClick = { viewModel.playGroup(group) })
                     }
                 }
-                item { SectionLabel("YouTube · Brave") }
                 if (youtubeResults.isNotEmpty()) {
+                    item { SectionLabel("YouTube") }
                     items(youtubeResults, key = { "yt:${it.id}" }) { track ->
                         ResultTrack(track, playerState, viewModel::play, viewModel::playNext)
                     }
                 }
-                item {
-                    Button(
-                        onClick = viewModel::searchOnYouTube,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Accent,
-                            contentColor = OnBackground,
-                        ),
-                    ) {
+                if (youtubeUrl.isNotBlank()) {
+                    item {
                         Text(
-                            if (viewModel.hasYouTubeKey && youtubeResults.isNotEmpty()) {
-                                "Reproducir en Brave"
-                            } else {
-                                "Buscar en Brave"
-                            },
-                        )
-                    }
-                    if (!viewModel.hasYouTubeKey) {
-                        Text(
-                            "Sin clave de Data API: se abre Brave y pegas el enlace en el puente.",
+                            "YouTube está en el panel de abajo. Elige un video: sigue sonando si cambias de pantalla.",
                             color = ArtistGray,
                             style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                            modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
                         )
                     }
                 }
@@ -207,7 +191,7 @@ private fun HistoryPane(
     onClear: () -> Unit,
 ) {
     if (history.isEmpty()) {
-        Hint("Escribe para buscar en este teléfono. Si no está, ábrelo en YouTube con Brave.")
+        Hint("Escribe para buscar en este teléfono. YouTube se abre aquí mismo para elegir qué reproducir.")
         return
     }
     Column(modifier = Modifier.fillMaxWidth()) {

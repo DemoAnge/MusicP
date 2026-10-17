@@ -36,11 +36,19 @@ object LibraryCatalog {
     fun List<Track>.coverTrack(): Track? =
         firstOrNull { !it.artworkUri.isNullOrBlank() } ?: firstOrNull()
 
+    fun songMatches(track: Track, raw: String): Boolean {
+        val needle = raw.trim().lowercase()
+        if (needle.isEmpty()) return true
+        return listOf(track.title, track.artist, track.album).any { it.lowercase().contains(needle) }
+    }
+
     fun build(
         tracks: List<Track>,
         prefs: LibraryPrefsSnapshot,
         query: LibraryBrowseQuery,
     ): LibraryUiState {
+        val needle = query.songQuery.trim()
+        val tracks = if (needle.isEmpty()) tracks else tracks.filter { songMatches(it, needle) }
         val songs = sortTracks(
             tracks.filter { track ->
                 TrackClassifier.includeInLibrary(
@@ -96,6 +104,7 @@ object LibraryCatalog {
             -> groupsState(base, songs, albumGroups, query)
         }
         return applyPicking(state, songs, prefs, query.pickingForPlaylist)
+            .copy(songQuery = needle)
     }
 
     private fun playlistsState(

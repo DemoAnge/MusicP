@@ -25,8 +25,8 @@ import com.example.music.domain.usecase.ObserveLibraryPrefsUseCase
 import com.example.music.domain.usecase.ObservePlayerStateUseCase
 import com.example.music.domain.usecase.PlayTrackUseCase
 import com.example.music.domain.usecase.PlaylistMutation
-import com.example.music.domain.usecase.SearchYouTubeUseCase
 import com.example.music.domain.usecase.ToggleFavoriteUseCase
+import com.example.music.ui.search.InAppYouTubeSearch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -54,7 +54,7 @@ class LibraryViewModel @Inject constructor(
     private val controls: ControlPlaybackUseCase,
     private val toggleFavorite: ToggleFavoriteUseCase,
     private val deleteTracks: DeleteLocalTracksUseCase,
-    private val searchYouTube: SearchYouTubeUseCase,
+    private val inAppYouTube: InAppYouTubeSearch,
 ) : ViewModel() {
 
     private val browseMode = MutableStateFlow(BrowseMode.HOME)
@@ -85,9 +85,16 @@ class LibraryViewModel @Inject constructor(
         PlayerState(),
     )
 
-    private val filters = combine(browseMode, sortMode, selectedGroupKey, pickingForPlaylist) {
-            browse, sort, group, picking ->
-        LibraryBrowseQuery(browse, sort, group, picking)
+    private val songLookup = MutableStateFlow(SongLookup())
+
+    private val filters = combine(
+        browseMode,
+        sortMode,
+        selectedGroupKey,
+        pickingForPlaylist,
+        songLookup,
+    ) { browse, sort, group, picking, lookup ->
+        LibraryBrowseQuery(browse, sort, group, picking, lookup.text)
     }
 
     private val selection = combine(selecting, selectedIds) { on, ids -> on to ids }
@@ -114,6 +121,8 @@ class LibraryViewModel @Inject constructor(
                 selecting = sel.first,
                 selectedIds = sel.second,
                 refreshing = refreshing,
+                songSearchOpen = songLookup.value.open,
+                songQuery = songLookup.value.text,
             )
         }.getOrDefault(
             LibraryUiState(
@@ -125,6 +134,8 @@ class LibraryViewModel @Inject constructor(
                 selectedIds = sel.second,
                 pickingForPlaylist = query.pickingForPlaylist,
                 refreshing = refreshing,
+                songSearchOpen = songLookup.value.open,
+                songQuery = songLookup.value.text,
             ),
         )
     }.flowOn(Dispatchers.Default).stateIn(
@@ -262,15 +273,20 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch { runCatching { playTrack(track, list) } }
     }
 
+    fun toggleSongSearch() {
+        val next = !songLookup.value.open
+        songLookup.value = if (next) songLookup.value.copy(open = true) else SongLookup()
+    }
+
+    fun setSongQuery(value: String) {
+        songLookup.value = songLookup.value.copy(open = true, text = value)
+    }
+
     fun searchOnYouTube(track: Track) {
         val query = listOf(track.title, track.artist).filter { it.isNotBlank() }.joinToString(" ")
         if (query.isBlank()) return
-        viewModelScope.launch {
-            val found = runCatching { searchYouTube(query) }.getOrDefault(emptyList())
-            val queue = found.ifEmpty { listOf(searchYouTube.placeholder(query)) }
-            runCatching { playTrack(queue.first(), queue) }
-            _notice.value = "Buscando en YouTube · Brave"
-        }
+        inAppYouTube.submit(query)
+        _events.tryEmit(LibraryEvent.OpenYouTubeSearch(query))
     }
 
     fun createPlaylist(name: String, addTrackId: String? = null) {
@@ -516,6 +532,12 @@ class LibraryViewModel @Inject constructor(
     }
 }
 
+private data class SongLookup(
+    val open: Boolean = false,
+    val text: String = "",
+)
+
 sealed interface LibraryEvent {
     data class RequestDeleteConsent(val sender: IntentSender) : LibraryEvent
+    data class OpenYouTubeSearch(val query: String) : LibraryEvent
 }

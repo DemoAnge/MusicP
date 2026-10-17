@@ -53,6 +53,8 @@ import com.example.music.ui.lockscreen.LockScreenAuthScreen
 import com.example.music.ui.lockscreen.LockScreenAuthViewModel
 import com.example.music.ui.nowplaying.NowPlayingScreen
 import com.example.music.ui.search.SearchScreen
+import com.example.music.ui.search.YouTubePlaybackDock
+import com.example.music.ui.search.YouTubeSessionViewModel
 import com.example.music.ui.settings.SettingsScreen
 import com.example.music.ui.voice.VoiceEvent
 import com.example.music.ui.voice.findComponentActivity
@@ -77,12 +79,15 @@ private object Destinations {
 fun MusicApp(
     playerBarViewModel: PlayerBarViewModel = hiltViewModel(),
     lockScreenAuthViewModel: LockScreenAuthViewModel = hiltViewModel(),
+    youtubeSession: YouTubeSessionViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
     val playerState by playerBarViewModel.playerState.collectAsStateWithLifecycle()
+    val youtubeUrl by youtubeSession.pageUrl.collectAsStateWithLifecycle()
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination
     val onNowPlaying = current?.route == Destinations.NowPlaying
+    val onSearch = current?.route == Destinations.Search
     val onSettings = current?.route == Destinations.Settings
     val hideChrome = onNowPlaying
     val showLockPrompt by lockScreenAuthViewModel.showPrompt.collectAsStateWithLifecycle()
@@ -149,9 +154,17 @@ fun MusicApp(
             containerColor = Background,
             snackbarHost = { MusicSnackbarHost(snackbar) },
             bottomBar = {
-                if (!hideChrome) {
-                    Column {
-                        if (playerState.currentTrack != null) {
+                Column {
+                    if (youtubeUrl.isNotBlank()) {
+                        YouTubePlaybackDock(
+                            url = youtubeUrl,
+                            expanded = onSearch,
+                            handleBack = onSearch,
+                            playerState = playerState,
+                            onPauseLocal = playerBarViewModel::pause,
+                        )
+                    }
+                    if (!hideChrome && playerState.currentTrack != null) {
                             MiniPlayer(
                                 playerState = playerState,
                                 onTogglePlay = playerBarViewModel::togglePlayPause,
@@ -162,7 +175,7 @@ fun MusicApp(
                                 onReopenBridge = playerBarViewModel::reopenWebBridge,
                             )
                         }
-                        if (!onSettings) NavigationBar(containerColor = Surface) {
+                        if (!hideChrome && !onSettings) NavigationBar(containerColor = Surface) {
                             val items = listOf(
                                 Triple(Destinations.Library, "Biblioteca", Icons.Filled.LibraryMusic),
                                 Triple(Destinations.Search, "Buscar", Icons.Filled.Search),
@@ -190,7 +203,6 @@ fun MusicApp(
                                 )
                             }
                         }
-                    }
                 }
             },
         ) { padding ->
@@ -207,6 +219,13 @@ fun MusicApp(
                         onEnableLockScreenControls = lockScreenAuthViewModel::reshow,
                         onOpenSettings = {
                             navController.navigate(Destinations.Settings) { launchSingleTop = true }
+                        },
+                        onSearchYouTube = {
+                            navController.navigate(Destinations.Search) {
+                                popUpTo(Destinations.Library) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         },
                     )
                 }

@@ -49,6 +49,7 @@ data class LibraryBrowseQuery(
     val sort: SortMode = SortMode.TITLE,
     val groupKey: String? = null,
     val pickingForPlaylist: Boolean = false,
+    val songQuery: String = "",
 )
 
 data class LibraryUiState(
@@ -75,4 +76,6 @@ data class LibraryUiState(
     val selectedIds: Set<String> = emptySet(),
     val pickingForPlaylist: Boolean = false,
     val refreshing: Boolean = false,
+    val songSearchOpen: Boolean = false,
+    val songQuery: String = "",
 )

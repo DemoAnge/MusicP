@@ -36,6 +36,17 @@ class LibraryCatalogTest {
     }
 
     @Test
+    fun songQueryKeepsMatchingSongs() {
+        val state = LibraryCatalog.build(
+            songs,
+            LibraryPrefsSnapshot(),
+            LibraryBrowseQuery(BrowseMode.SONGS, songQuery = "beta"),
+        )
+        assertEquals(listOf("2"), state.visibleTracks.map { it.id })
+        assertEquals("beta", state.songQuery)
+    }
+
+    @Test
     fun favoritesEmptyLabel() {
         val state = LibraryCatalog.build(
             songs,

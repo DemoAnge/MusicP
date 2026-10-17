@@ -61,8 +61,9 @@ class HandleVoiceCommandUseCase @Inject constructor(
             return VoiceResult(pick.spoken)
         }
         val found = runCatching { searchYouTube(query) }.getOrDefault(emptyList())
-        val queue = found.ifEmpty { listOf(searchYouTube.placeholder(query)) }
-        runCatching { playTrack(queue.first(), queue) }
+            .filter { it.mediaUri.startsWith("yt:") && !it.mediaUri.startsWith("ytsearch:") }
+        if (found.isEmpty()) return VoiceResult("No está en el teléfono")
+        runCatching { playTrack(found.first(), found) }
         return VoiceResult("En Brave")
     }
 

@@ -7,6 +7,7 @@ import com.example.music.domain.model.LibraryGroup
 import com.example.music.domain.model.PlaybackSource
 import com.example.music.domain.model.PlayerState
 import com.example.music.domain.model.Track
+import com.example.music.domain.player.YouTubePageLinks
 import com.example.music.domain.usecase.ControlPlaybackUseCase
 import com.example.music.domain.usecase.ObserveLibraryPrefsUseCase
 import com.example.music.domain.usecase.ObservePlayerStateUseCase
@@ -32,6 +33,7 @@ class SearchViewModel @Inject constructor(
     private val prefs: ObserveLibraryPrefsUseCase,
     private val playTrack: PlayTrackUseCase,
     private val controls: ControlPlaybackUseCase,
+    private val inAppYouTube: InAppYouTubeSearch,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -42,6 +44,9 @@ class SearchViewModel @Inject constructor(
 
     private val _youtubeResults = MutableStateFlow<List<Track>>(emptyList())
     val youtubeResults: StateFlow<List<Track>> = _youtubeResults.asStateFlow()
+
+    private val _youtubeUrl = MutableStateFlow("")
+    val youtubeUrl: StateFlow<String> = _youtubeUrl.asStateFlow()
 
     private val _showAllSongs = MutableStateFlow(false)
     val showAllSongs: StateFlow<Boolean> = _showAllSongs.asStateFlow()
@@ -62,15 +67,31 @@ class SearchViewModel @Inject constructor(
 
     private var searchJob: Job? = null
     private var youtubeJob: Job? = null
+    private var pageJob: Job? = null
+    private var pageGeneration = 0
+
+    init {
+        viewModelScope.launch {
+            inAppYouTube.query.collect { incoming ->
+                val query = incoming?.trim().orEmpty()
+                if (query.isEmpty()) return@collect
+                inAppYouTube.consume()
+                showInApp(query)
+            }
+        }
+    }
 
     fun onQueryChange(value: String) {
         _query.value = value
         _showAllSongs.value = false
         searchJob?.cancel()
         youtubeJob?.cancel()
+        pageJob?.cancel()
         if (value.isBlank()) {
+            pageGeneration++
             _local.value = GroupedLocalSearch()
             _youtubeResults.value = emptyList()
+            publishPage("")
             return
         }
         searchJob = viewModelScope.launch {
@@ -86,6 +107,13 @@ class SearchViewModel @Inject constructor(
         } else {
             _youtubeResults.value = emptyList()
         }
+        val generation = ++pageGeneration
+        pageJob = viewModelScope.launch {
+            delay(700)
+            if (generation == pageGeneration) {
+                publishPage(YouTubePageLinks.resultsUrl(value))
+            }
+        }
     }
 
     fun expandSongs() {
@@ -93,8 +121,7 @@ class SearchViewModel @Inject constructor(
     }
 
     fun applyHistory(value: String) {
-        onQueryChange(value)
-        rememberQuery(value)
+        showInApp(value)
     }
 
     fun removeHistory(value: String) {
@@ -107,12 +134,19 @@ class SearchViewModel @Inject constructor(
 
     fun play(track: Track) {
         rememberQuery(_query.value)
-        viewModelScope.launch {
-            val queue = if (track.source == PlaybackSource.WEB) {
-                _youtubeResults.value.ifEmpty { listOf(track) }
-            } else {
-                _local.value.songs.ifEmpty { listOf(track) }
+        if (track.source == PlaybackSource.WEB) {
+            val watch = YouTubePageLinks.videoIdOfMedia(track.mediaUri)
+                ?.let(YouTubePageLinks::watchUrl)
+                .orEmpty()
+            if (watch.isNotEmpty()) {
+                pageJob?.cancel()
+                pageGeneration++
+                publishPage(watch)
             }
+            return
+        }
+        viewModelScope.launch {
+            val queue = _local.value.songs.ifEmpty { listOf(track) }
             runCatching { playTrack(track, queue) }
         }
     }
@@ -126,7 +160,7 @@ class SearchViewModel @Inject constructor(
     }
 
     fun playNext(track: Track) {
-        if (track.isVideo) return
+        if (track.isVideo || track.source == PlaybackSource.WEB) return
         rememberQuery(_query.value)
         controls.playNext(track)
     }
@@ -134,18 +168,35 @@ class SearchViewModel @Inject constructor(
     fun searchOnYouTube() {
         val q = _query.value.trim()
         if (q.isEmpty()) return
-        rememberQuery(q)
-        viewModelScope.launch {
-            val tracks = if (hasYouTubeKey) {
-                _youtubeResults.value.ifEmpty {
-                    runCatching { searchYouTube(q) }.getOrDefault(emptyList()).take(5)
-                }
-            } else {
-                emptyList()
-            }
-            val queue = tracks.ifEmpty { listOf(searchYouTube.placeholder(q)) }
-            runCatching { playTrack(queue.first(), queue) }
+        showInApp(q)
+    }
+
+    private fun showInApp(value: String) {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty()) return
+        pageJob?.cancel()
+        pageGeneration++
+        _query.value = trimmed
+        _showAllSongs.value = false
+        publishPage(YouTubePageLinks.resultsUrl(trimmed))
+        rememberQuery(trimmed)
+        searchJob?.cancel()
+        youtubeJob?.cancel()
+        searchJob = viewModelScope.launch {
+            _local.value = runCatching { searchTracks(trimmed) }.getOrDefault(GroupedLocalSearch())
         }
+        if (hasYouTubeKey) {
+            youtubeJob = viewModelScope.launch {
+                _youtubeResults.value = runCatching { searchYouTube(trimmed) }.getOrDefault(emptyList()).take(5)
+            }
+        } else {
+            _youtubeResults.value = emptyList()
+        }
+    }
+
+    private fun publishPage(url: String) {
+        _youtubeUrl.value = url
+        inAppYouTube.setPage(url)
     }
 
     private fun rememberQuery(value: String) {

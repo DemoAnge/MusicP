@@ -1,6 +1,6 @@
 package com.example.music.ui.nowplaying
 
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -30,9 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,7 +72,7 @@ fun QueueSheet(
         ) {
             Text("Cola", style = MaterialTheme.typography.titleLarge, color = OnBackground)
             Text(
-                text = "${playerState.queue.size} canciones · mantén y desliza para reordenar",
+                text = "${playerState.queue.size} canciones · aplasta el asa y arrastra la canción",
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArtistGray,
             )
@@ -127,39 +125,48 @@ private fun QueueRow(
 ) {
     val density = LocalDensity.current
     val rowPx = with(density) { 64.dp.toPx() }
-    var accum by remember(index) { mutableFloatStateOf(0f) }
+    val currentIndex by rememberUpdatedState(index)
+    val endIndex by rememberUpdatedState(lastIndex)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .pointerInput(index, lastIndex) {
-                detectDragGesturesAfterLongPress(
-                    onDragStart = { accum = 0f },
-                    onDragEnd = { accum = 0f },
-                    onDragCancel = { accum = 0f },
-                    onDrag = { change, amount ->
-                        change.consume()
-                        accum += amount.y
-                        val steps = (accum / rowPx).toInt()
-                        if (steps != 0) {
-                            val target = (index + steps).coerceIn(0, lastIndex)
-                            if (target != index) {
-                                onMove(index, target)
-                                accum -= steps * rowPx
-                            }
-                        }
-                    },
-                )
-            }
             .clickable(onClick = onPlay)
             .padding(vertical = 4.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             Icons.Filled.DragHandle,
-            contentDescription = "Arrastrar para reordenar",
+            contentDescription = "Aplastar y arrastrar",
             tint = ArtistGray,
-            modifier = Modifier.size(24.dp),
+            modifier = Modifier
+                .size(48.dp)
+                .pointerInput(track.id) {
+                    var accum = 0f
+                    var from = index
+                    var end = lastIndex
+                    detectDragGestures(
+                        onDragStart = {
+                            accum = 0f
+                            from = currentIndex
+                            end = endIndex
+                        },
+                        onDragEnd = { accum = 0f },
+                        onDragCancel = { accum = 0f },
+                        onDrag = { change, amount ->
+                            change.consume()
+                            accum += amount.y
+                            val steps = (accum / rowPx).toInt()
+                            if (steps == 0) return@detectDragGestures
+                            val target = (from + steps).coerceIn(0, end)
+                            if (target != from) {
+                                onMove(from, target)
+                                from = target
+                                accum -= steps * rowPx
+                            }
+                        },
+                    )
+                },
         )
         Spacer(Modifier.width(4.dp))
         AlbumArt(track = track, size = 44.dp)

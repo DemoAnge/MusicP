@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.QueuePlayNext
 import androidx.compose.material.icons.filled.Settings
@@ -130,6 +131,7 @@ fun LibraryScreen(
     showLockScreenBanner: Boolean = false,
     onEnableLockScreenControls: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onSearchYouTube: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
@@ -209,6 +211,7 @@ fun LibraryScreen(
                         deleteConsentLauncher.launch(IntentSenderRequest.Builder(event.sender).build())
                     }
                 }
+                is LibraryEvent.OpenYouTubeSearch -> onSearchYouTube(event.query)
             }
         }
     }
@@ -410,6 +413,13 @@ fun LibraryScreen(
                             Icon(Icons.Filled.VisibilityOff, contentDescription = "Ocultar carpeta", tint = OnBackground)
                         }
                     }
+                    IconButton(onClick = viewModel::toggleSongSearch) {
+                        Icon(
+                            Icons.Filled.Search,
+                            contentDescription = "Buscar canciones del teléfono",
+                            tint = if (ui.songSearchOpen) Accent else OnBackground,
+                        )
+                    }
                     VoiceMicButton(
                         state = voiceUi,
                         onTap = voiceVm::onMicTapped,
@@ -425,6 +435,38 @@ fun LibraryScreen(
                         SortMenu(current = ui.sort, onSelect = viewModel::setSort)
                     }
                 }
+            }
+            if (ui.songSearchOpen) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = ui.songQuery,
+                    onValueChange = viewModel::setSongQuery,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text("Canciones, artistas o álbumes de este teléfono") },
+                    leadingIcon = {
+                        Icon(Icons.Filled.Search, contentDescription = null, tint = ArtistGray)
+                    },
+                    trailingIcon = {
+                        if (ui.songQuery.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.setSongQuery("") }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Borrar búsqueda", tint = ArtistGray)
+                            }
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Accent,
+                        unfocusedBorderColor = SurfaceElevated,
+                        focusedContainerColor = SurfaceElevated,
+                        unfocusedContainerColor = SurfaceElevated,
+                        focusedTextColor = OnBackground,
+                        unfocusedTextColor = OnBackground,
+                        cursorColor = Accent,
+                        focusedPlaceholderColor = ArtistGray,
+                        unfocusedPlaceholderColor = ArtistGray,
+                    ),
+                )
             }
             if (showLockScreenBanner && !ui.selecting && !ui.pickingForPlaylist) {
                 Spacer(Modifier.height(8.dp))
